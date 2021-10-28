@@ -1,11 +1,12 @@
 from math import isqrt
-import numpy as np
-import matplotlib.pyplot as plt
 
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.special import logsumexp
 from sklearn.base import BaseEstimator, ClassifierMixin
-from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
-from sklearn.utils.multiclass import unique_labels
 from sklearn.model_selection import cross_val_score, learning_curve
+from sklearn.utils.multiclass import unique_labels
+from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 
 
 def read_data(file, delimiter=None):
@@ -20,12 +21,12 @@ X_test, y_test = read_data('data/test.txt')
 
 
 def show_sample(X, index):
-    '''Takes a dataset (e.g. X_train) and imshows the digit at the corresponding index
+    """Takes a dataset (e.g. X_train) and imshows the digit at the corresponding index
 
     Args:
         X (np.ndarray): Digits data (nsamples x nfeatures)
         index (int): index of digit to show
-    '''
+    """
 
     # 1d array to square 2d array
     d = isqrt(X.shape[1])
@@ -37,12 +38,12 @@ def show_sample(X, index):
 
 
 def plot_digits_samples(X, y):
-    '''Takes a dataset and selects one example from each label and plots it in subplots
+    """Takes a dataset and selects one example from each label and plots it in subplots
 
     Args:
         X (np.ndarray): Digits data (nsamples x nfeatures)
         y (np.ndarray): Labels for dataset (nsamples)
-    '''
+    """
 
     # Find the unique labels and a corresponding image for each label
     d = isqrt(X.shape[1])  # Dimension of the d x d image.
@@ -76,7 +77,7 @@ def plot_digits_samples(X, y):
 
 
 def digit_mean_at_pixel(X, y, digit, pixel=(10, 10)):
-    '''Calculates the mean for all instances of a specific digit at a pixel location
+    """Calculates the mean for all instances of a specific digit at a pixel location
 
     Args:
         X (np.ndarray): Digits data (nsamples x nfeatures)
@@ -86,14 +87,14 @@ def digit_mean_at_pixel(X, y, digit, pixel=(10, 10)):
 
     Returns:
         (float): The mean value of the digits for the specified pixels
-    '''
+    """
 
     d = isqrt(X.shape[1])  # d by d image
     Xd = X[y == digit]  # Select the digits
     Xd = Xd.reshape(-1, d, d)  # Reshape for easier indexing
     Xdp = Xd[:, pixel[0], pixel[1]]  # Select the pixel
 
-    return Xdp.mean()
+    return np.mean(Xdp)
 
 
 # # Test
@@ -104,7 +105,7 @@ def digit_mean_at_pixel(X, y, digit, pixel=(10, 10)):
 
 
 def digit_variance_at_pixel(X, y, digit, pixel=(10, 10)):
-    '''Calculates the variance for all instances of a specific digit at a pixel location
+    """Calculates the variance for all instances of a specific digit at a pixel location
 
     Args:
         X (np.ndarray): Digits data (nsamples x nfeatures)
@@ -114,14 +115,14 @@ def digit_variance_at_pixel(X, y, digit, pixel=(10, 10)):
 
     Returns:
         (float): The variance value of the digits for the specified pixels
-    '''
+    """
 
     d = isqrt(X.shape[1])  # d by d image
     Xd = X[y == digit]  # Select the digits
     Xd = Xd.reshape(-1, d, d)  # Reshape for easier indexing
     Xdp = Xd[:, pixel[0], pixel[1]]  # Select the pixel
 
-    return Xdp.var()
+    return np.var(Xdp.var)
 
 
 # # Test
@@ -129,7 +130,7 @@ def digit_variance_at_pixel(X, y, digit, pixel=(10, 10)):
 
 
 def digit_mean(X, y, digit):
-    '''Calculates the mean for all instances of a specific digit
+    """Calculates the mean for all instances of a specific digit
 
     Args:
         X (np.ndarray): Digits data (nsamples x nfeatures)
@@ -138,12 +139,12 @@ def digit_mean(X, y, digit):
 
     Returns:
         (np.ndarray): The mean value of the digits for every pixel
-    '''
-    return X[y == digit].mean(axis=0)
+    """
+    return np.mean(X[y == digit], axis=0)
 
 
 def digit_variance(X, y, digit):
-    '''Calculates the variance for all instances of a specific digit
+    """Calculates the variance for all instances of a specific digit
 
     Args:
         X (np.ndarray): Digits data (nsamples x nfeatures)
@@ -152,8 +153,8 @@ def digit_variance(X, y, digit):
 
     Returns:
         (np.ndarray): The variance value of the digits for every pixel
-    '''
-    return X[y == digit].var(axis=0)
+    """
+    return np.var(X[y == digit], axis=0)
 
 
 # t = np.vstack([digit_variance(X_test, y_test, digit)
@@ -161,7 +162,7 @@ def digit_variance(X, y, digit):
 
 
 def euclidean_distance(s, m):
-    '''Calculates the euclidean distance between a sample s and a mean template m
+    """Calculates the euclidean distance between a sample s and a mean template m
 
     Args:
         s (np.ndarray): Sample (nfeatures)
@@ -169,7 +170,7 @@ def euclidean_distance(s, m):
 
     Returns:
         (float) The Euclidean distance between s and m
-    '''
+    """
     delta = s - m
     return (delta @ delta) ** 0.5
 
@@ -180,7 +181,7 @@ def euclidean_distance(s, m):
 
 
 def euclidean_distance_classifier(X, X_mean):
-    '''Classifiece based on the euclidean distance between samples in X and template vectors in X_mean
+    """Classifiece based on the euclidean distance between samples in X and template vectors in X_mean
 
     Args:
         X (np.ndarray): Digits data (nsamples x nfeatures)
@@ -188,7 +189,7 @@ def euclidean_distance_classifier(X, X_mean):
 
     Returns:
         (np.ndarray) predictions (nsamples)
-    '''
+    """
 
     # We add a new dimension in the middle of the means array so that
     # X      :               nsamples, nfeatures
@@ -210,7 +211,7 @@ def euclidean_distance_classifier(X, X_mean):
 # means = np.vstack([digit_mean(X_train, y_train, digit) for digit in range(10)])
 # # Predict and compute accuracy
 # y_pred = euclidean_distance_classifier(X_test, means)
-# print((y_pred == y_test).mean())
+# print(np.mean(y_pred == y_test))
 
 
 class EuclideanDistanceClassifier(BaseEstimator, ClassifierMixin):
@@ -237,7 +238,7 @@ class EuclideanDistanceClassifier(BaseEstimator, ClassifierMixin):
 
         X, y = check_X_y(X, y)
         self.classes_ = unique_labels(y)
-        self.X_means_ = np.vstack([X[y == c].mean(axis=0) for c in self.classes_])
+        self.X_means_ = np.vstack([np.mean(X[y == c], axis=0) for c in self.classes_])
 
         return self
 
@@ -258,7 +259,7 @@ class EuclideanDistanceClassifier(BaseEstimator, ClassifierMixin):
     #     for X based on ground truth y
     #     """
     #     y_pred = self.predict(X)
-    #     return (y == y_pred).mean()
+    #     return np.mean(y == y_pred)
 
 
 # clf = EuclideanDistanceClassifier()
@@ -267,19 +268,20 @@ class EuclideanDistanceClassifier(BaseEstimator, ClassifierMixin):
 # print(score)
 
 
-def evaluate_classifier(clf, X, y, folds=5):
+def evaluate_classifier(clf, X, y, n_folds=5):
     """Returns the 5-fold accuracy for classifier clf on X and y
 
     Args:
         clf (sklearn.base.BaseEstimator): classifier
         X (np.ndarray): Digits data (nsamples x nfeatures)
         y (np.ndarray): Labels for dataset (nsamples)
+        n_folds (int): Number of folds for the cross validation for the score.
 
     Returns:
         (float): The 5-fold classification score (accuracy)
     """
-    scores = cross_val_score(clf, X, y, cv=folds, scoring='accuracy')
-    return scores.mean()
+    scores = cross_val_score(clf, X, y, cv=n_folds, scoring='accuracy')
+    return np.mean(scores)
 
 
 # clf = EuclideanDistanceClassifier()
@@ -351,8 +353,6 @@ def plot_learning_curve(estimator, X, y,
 # plt.show()
 
 
-# %%
-
 class CustomNBClassifier(BaseEstimator, ClassifierMixin):
     """Custom implementation Naive Bayes classifier"""
 
@@ -360,7 +360,6 @@ class CustomNBClassifier(BaseEstimator, ClassifierMixin):
         self.use_unit_variance = use_unit_variance
         self.priors = priors
         self.var_smoothing = var_smoothing
-
 
     def fit(self, X, y):
         """
@@ -379,39 +378,43 @@ class CustomNBClassifier(BaseEstimator, ClassifierMixin):
         self.classes_ = unique_labels(y)
 
         # p(Ci) ~ empirical distribution of the classes
-        self.priors_ = calculate_priors(y) if self.priors is None else self.priors
+        self.priors_ = calculate_priors(y) if self.priors is None else np.asarray(self.priors)
 
         grouped = [X[y == c] for c in self.classes_]
-        # Estimation of the mean of the likelihood p(x|Ci) ~ N(mu, sigma^2)
+        # Estimation of the mean and variance of the likelihood p(xj|Ci) ~ N(mu_ij, sigma_ij)
         self.mus_ = np.vstack([np.mean(g, axis=0) for g in grouped])
-        # Estimation of the standard deviation of the likelihood p(x|Ci) ~ N(mu, sigma^2)
         if self.use_unit_variance:
-            self.sigmas_ = np.ones_like(self.classes_)
+            self.sigmas_ = np.ones((np.size(self.classes_), X[0].shape[0]))
         else:
-            self.sigmas_ = np.vstack([np.std(g, axis=0) for g in grouped])
+            self.sigmas_ = np.vstack([np.var(g, axis=0) for g in grouped])
 
-        self.epsilon_ = np.max(self.sigmas_, axis=None) * self.var_smoothing ** 0.5
+        self.epsilon_ = np.max(self.sigmas_, axis=None) * self.var_smoothing
 
         return self
-
 
     def _losses(self, X):
         # The class which maximizes the likelihood will be equal to np.argmin(self._losses(X))
         # The evidence is not included since it's irrelevant in calculating the argmax class.
         # In *Naive* Bayes we assume independence of the features when the class is given.
         # We will also assume that the likelihood is normally distributed. (GAUSSIAN Naive Bayes)
-        assert X.ndim in (1, 2)
-        if X.ndim == 2:
-            X = np.expand_dims(X, axis=1)
+        X = np.expand_dims(X, axis=1)
         sigmas = self.sigmas_ + self.epsilon_
         log_priors = np.log(self.priors_)
         sum_log_sigmas = np.sum(np.log(sigmas), axis=1)
-        normalized_x = (X - self.mus_) / sigmas
-        sum_squares = np.einsum('...j, ...j -> ...', normalized_x, normalized_x)
-        likelihood_equivalent = log_priors - sum_log_sigmas - 0.5 * sum_squares
-
+        sum_squares = np.sum((X - self.mus_)**2 / sigmas, axis=-1)
+        likelihood_equivalent = log_priors - 0.5 * sum_log_sigmas - 0.5 * sum_squares
         return -likelihood_equivalent
 
+    def predict_log_proba(self, X):
+        check_is_fitted(self)
+        X = check_array(X)
+        likelihood_equivalent = -self._losses(X)
+        log_normalizer = logsumexp(likelihood_equivalent, axis=1)
+        log_normalizer = np.expand_dims(log_normalizer, axis=1)
+        return likelihood_equivalent - log_normalizer
+
+    def predict_proba(self, X):
+        return np.exp(self.predict_log_proba(X))
 
     def predict(self, X):
         """
@@ -424,7 +427,6 @@ class CustomNBClassifier(BaseEstimator, ClassifierMixin):
         indices = np.argmin(losses, axis=1)
         return self.classes_[indices]
 
-
     # # ClassifierMixin automatically implements this
     # def score(self, X, y):
     #     """
@@ -432,17 +434,52 @@ class CustomNBClassifier(BaseEstimator, ClassifierMixin):
     #     for X based on ground truth y
     #     """
     #     y_pred = self.predict(X)
-    #     return (y == y_pred).mean()
+    #     return np.mean(y == y_pred)
 
 
-gnb1 = CustomNBClassifier()
-gnb1.fit(X_train, y_train)
-score1 = gnb1.score(X_test, y_test)
 
-from sklearn.naive_bayes import GaussianNB
-priors = calculate_priors(y_train)
-gnb2 = GaussianNB()
-gnb2.fit(X_train, y_train)
-score2 = gnb2.score(X_test, y_test)
+# def train_eval(estimator):
+#     estimator.fit(X_train, y_train)
+#     return estimator.score(X_test, y_test)
+#
+#
+# score_custom = train_eval(CustomNBClassifier())
+#
+# from sklearn.naive_bayes import GaussianNB
+# score_sklearn = train_eval(GaussianNB())
+#
+# score_unit_var = train_eval(CustomNBClassifier(use_unit_variance=True))
+#
+# n_classes = np.size(np.unique(y_train))
+# uniform_prior = np.ones(n_classes) / n_classes
+# score_unit_var_uniform_priors = train_eval(CustomNBClassifier(priors=uniform_prior, use_unit_variance=True))
+#
+# score_eucl = train_eval(EuclideanDistanceClassifier())
+#
+# print(f'''{score_custom = }
+# {score_sklearn = }
+# {score_unit_var = }
+# {score_unit_var_uniform_priors = }
+# {score_eucl = }''')
 
-print(f'{score1, score2, abs(score1 - score2) = }')
+
+# clf1 = CustomNBClassifier()
+# clf1.fit(X_train, y_train)
+# log_proba1 = clf1.predict_log_proba(X_test)
+# proba1 = clf1.predict_proba(X_test)
+# pred1 = clf1.predict(X_test)
+# score1 = clf1.score(X_test, y_test)
+#
+# clf2 = GaussianNB()
+# clf2.fit(X_train, y_train)
+# log_proba2 = clf2.predict_log_proba(X_test)
+# proba2 = clf2.predict_proba(X_test)
+# pred2 = clf2.predict(X_test)
+# score2 = clf2.score(X_test, y_test)
+#
+# clf = CustomNBClassifier()
+# clf.fit(X_train, y_train)
+# mus = clf.mus_
+# diffs = np.expand_dims(mus, 1) - mus  # (10, 10, 256)
+# dists_squared = np.einsum('...j, ...j', diffs, diffs)  # (10, 10)
+
