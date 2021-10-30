@@ -73,7 +73,7 @@ def plot_digits_samples(X, y):
 
     # # This is deterministic, not random
     # labels, indices = np.unique(y, return_index=True)
-    # images = list(zip(X[indices].reshape(-1, d, d), labels.astype(int)))  # List of image, label pairs
+    # results = list(zip(X[indices].reshape(-1, d, d), labels.astype(int)))  # List of image, label pairs
 
     images = []
     labels = np.unique(y)
@@ -93,7 +93,7 @@ def plot_digits_samples(X, y):
     ncols = k
     nrows = k + q + (r != 0)  # ceiling division
 
-    # Plot the images
+    # Plot the results
     fig, axs = plt.subplots(nrows, ncols, figsize=(12, 12))
     for (img, label), ax in zip(images, axs.flat):
         ax.imshow(img, cmap='Greys')
@@ -423,10 +423,9 @@ def plot_region(clf, X1, X2, y, X1_label, X2_label):
     legend = ax.legend(*scatter.legend_elements(), loc="best", title="Classes")
     ax.add_artist(legend)
 
+    ax.set_aspect('equal', adjustable='box')
     ax.set_xlabel(X1_label)
     ax.set_ylabel(X2_label)
-    ax.set_xticks(())
-    ax.set_yticks(())
     ax.set_title('Decision surface of the Classifier')
 
     return fig, ax
