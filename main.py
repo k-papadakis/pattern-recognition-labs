@@ -1,21 +1,12 @@
 from math import isqrt
 
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 import numpy as np
 from scipy.special import logsumexp
-
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import TruncatedSVD
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.model_selection import cross_val_score, learning_curve
 from sklearn.utils.multiclass import unique_labels
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
-from sklearn.naive_bayes import GaussianNB
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.svm import SVC
-
 
 
 def read_data(file, delimiter=None):
@@ -25,12 +16,8 @@ def read_data(file, delimiter=None):
     return X, y
 
 
-# ------------------- STEP 1 -------------------
 X_train, y_train = read_data('data/train.txt')
 X_test, y_test = read_data('data/test.txt')
-
-
-# ----------------------------------------------
 
 
 def show_sample(X, index):
@@ -50,15 +37,6 @@ def show_sample(X, index):
     plt.show()
 
 
-# ------------------- STEP 2 -------------------
-def step2():
-    show_sample(X_train, 131)
-
-
-# step2()
-# ----------------------------------------------
-
-
 def plot_digits_samples(X, y):
     """Takes a dataset and selects one example from each label and plots it in subplots
 
@@ -69,20 +47,8 @@ def plot_digits_samples(X, y):
 
     # Find the unique labels and a corresponding image for each label
     d = isqrt(X.shape[1])  # Dimension of the d x d image.
-
-    # # This is deterministic, not random
-    # labels, indices = np.unique(y, return_index=True)
-    # images = list(zip(X[indices].reshape(-1, d, d), labels.astype(int)))  # List of image, label pairs
-
-    images = []
-    labels = np.unique(y)
-    for label in labels:
-        X_label = X[y == label]
-        sample_idx = np.random.randint(X_label.shape[0])
-        sample = X_label[sample_idx]
-        sample = sample.reshape(d, d)
-        images.append((sample, int(label)))
-
+    labels, indices = np.unique(y, return_index=True)
+    images = list(zip(X[indices].reshape(-1, d, d), labels))  # List of image, label pairs
     images.sort(key=lambda v: v[1])  # Sort by label
 
     # Calculate the dimensions of the image grid which we will display
@@ -94,7 +60,8 @@ def plot_digits_samples(X, y):
 
     # Plot the images
     fig, axs = plt.subplots(nrows, ncols, figsize=(12, 12))
-    for (img, label), ax in zip(images, axs.flat):
+    for i, (img, label) in enumerate(images):
+        ax = axs.flat[i]
         ax.imshow(img, cmap='Greys')
         ax.set_title(label, size='x-large')
         ax.xaxis.set_visible(False)
@@ -107,15 +74,6 @@ def plot_digits_samples(X, y):
     fig.suptitle('Labeled Images', size='xx-large')
 
     plt.show()
-
-
-# ------------------- STEP 3 -------------------
-def step3():
-    plot_digits_samples(X_train, y_train)
-
-
-# step3()
-# ----------------------------------------------
 
 
 def digit_mean_at_pixel(X, y, digit, pixel=(10, 10)):
@@ -146,15 +104,6 @@ def digit_mean_at_pixel(X, y, digit, pixel=(10, 10)):
 # plt.show()
 
 
-# ------------------- STEP 4 -------------------
-def step4():
-    print(digit_mean_at_pixel(X_train, y_train, 0))
-
-
-# step4()
-# ----------------------------------------------
-
-
 def digit_variance_at_pixel(X, y, digit, pixel=(10, 10)):
     """Calculates the variance for all instances of a specific digit at a pixel location
 
@@ -173,19 +122,12 @@ def digit_variance_at_pixel(X, y, digit, pixel=(10, 10)):
     Xd = Xd.reshape(-1, d, d)  # Reshape for easier indexing
     Xdp = Xd[:, pixel[0], pixel[1]]  # Select the pixel
 
-    return np.var(Xdp)
+    return np.var(Xdp.var)
 
 
 # # Test
 # assert X_test[y_test==7].reshape(-1, 16, 16)[:, 15, 15].var() == 0
 
-# ------------------- STEP 5 -------------------
-def step5():
-    print(digit_variance_at_pixel(X_train, y_train, 0))
-
-
-# step5()
-# ----------------------------------------------
 
 def digit_mean(X, y, digit):
     """Calculates the mean for all instances of a specific digit
@@ -198,9 +140,7 @@ def digit_mean(X, y, digit):
     Returns:
         (np.ndarray): The mean value of the digits for every pixel
     """
-    X_digit = X[y == digit]
-    X_digit_mean = np.mean(X_digit, axis=0)
-    return X_digit_mean
+    return np.mean(X[y == digit], axis=0)
 
 
 def digit_variance(X, y, digit):
@@ -214,49 +154,11 @@ def digit_variance(X, y, digit):
     Returns:
         (np.ndarray): The variance value of the digits for every pixel
     """
-    X_digit = X[y == digit]
-    X_digit_var = np.var(X_digit, axis=0)
-    return X_digit_var
+    return np.var(X[y == digit], axis=0)
 
 
-# ------------------- STEP 6, 7, 8 -------------------
-def plot_mean_variance(digit):
-    d = isqrt(X_train.shape[1])
-    mean_zero = digit_mean(X_train, y_train, digit).reshape(d, d)
-    var_zero = digit_variance(X_train, y_train, digit).reshape(d, d)
-
-    fig, ax = plt.subplots(1, 2)
-    ax[0].imshow(mean_zero, cmap='Greys')
-    ax[0].set_title('Mean')
-    ax[0].axis('off')
-
-    ax[1].imshow(var_zero, cmap='Greys')
-    ax[1].set_title('Variance')
-    ax[1].axis('off')
-
-    # Conclusion: The border has the most variance which should be pretty obvious as to why.
-    plt.show()
-
-def step6_7_8():
-    plot_mean_variance(0)
-
-
-# step6_7_8()
-# ---------------------------------------------------
-
-
-# ------------------- STEP 9 -------------------
-# Plot the mean and variance of all the digits
-def step9():
-    digits = np.unique(y_train)
-    d_means = np.vstack([digit_mean(X_train, y_train, digit) for digit in digits])
-    d_vars = np.vstack([digit_variance(X_train, y_train, digit) for digit in digits])
-    plot_digits_samples(d_means, digits)
-    # plot_digits_samples(d_vars, digits)  # Not requested
-
-
-# step9()
-# ----------------------------------------------
+# t = np.vstack([digit_variance(X_test, y_test, digit)
+#                for digit in np.unique(y_test)])
 
 
 def euclidean_distance(s, m):
@@ -300,42 +202,18 @@ def euclidean_distance_classifier(X, X_mean):
     X_mean = np.expand_dims(X_mean, axis=1)
     diffs = X - X_mean
     dists2 = np.einsum('ijk, ijk -> ij', diffs, diffs)
-    y_pred = np.argmin(dists2, axis=0)  # Index is the same as digit in our case
+    y_pred = np.argmin(dists2, axis=0)
+
     return y_pred
 
 
-# ------------------- STEP 10 -------------------
-def step10():
-    x = X_test[101]
-    x = np.expand_dims(x, 0)
-    y = y_test[101]
-    digits = np.unique(y_train)
-    d_means = np.vstack([digit_mean(X_train, y_train, digit) for digit in digits])
-    pred = euclidean_distance_classifier(x, d_means)
-    pred = pred[0]
-    print(f'prediction = {pred}, true_label = {int(y)}')
-    plt.imshow(X_test[101].reshape(16, 16), cmap='Greys')
-    plt.show()
+# # Compute all means
+# means = np.vstack([digit_mean(X_train, y_train, digit) for digit in range(10)])
+# # Predict and compute accuracy
+# y_pred = euclidean_distance_classifier(X_test, means)
+# print(np.mean(y_pred == y_test))
 
 
-# step10()  # This is indeed a poorly written "6"
-# -----------------------------------------------
-
-
-# ------------------- STEP 11 -------------------
-def step11():
-    # Predict and compute accuracy
-    digits = np.unique(y_train)
-    d_means = np.vstack([digit_mean(X_train, y_train, digit) for digit in digits])
-    y_pred = euclidean_distance_classifier(X_test, d_means)
-    print('Euclidean distance classifier accuracy:', np.mean(y_pred == y_test))
-
-
-# step11()
-# -----------------------------------------------
-
-
-# ------------------- STEP 12 -------------------
 class EuclideanDistanceClassifier(BaseEstimator, ClassifierMixin):
     """Classify samples based on the distance from the mean feature value"""
 
@@ -382,7 +260,12 @@ class EuclideanDistanceClassifier(BaseEstimator, ClassifierMixin):
     #     """
     #     y_pred = self.predict(X)
     #     return np.mean(y == y_pred)
-# -----------------------------------------------
+
+
+# clf = EuclideanDistanceClassifier()
+# clf.fit(X_train, y_train)
+# score = clf.score(X_test, y_test)
+# print(score)
 
 
 def evaluate_classifier(clf, X, y, n_folds=5):
@@ -401,35 +284,27 @@ def evaluate_classifier(clf, X, y, n_folds=5):
     return np.mean(scores)
 
 
-def plot_region(clf, X1, X2, y, X1_label, X2_label):
-    fig, ax = plt.subplots(figsize=(12, 12))
+# clf = EuclideanDistanceClassifier()
+# score = evaluate_classifier(clf, X_train, y_train)
+# print(score)
 
-    X1_min, X1_max = X1.min() - 1, X1.max() + 1
-    X2_min, X2_max = X2.min() - 1, X2.max() + 1
-    A, B = np.meshgrid(np.arange(X1_min, X1_max, .05),
-                       np.arange(X2_min, X2_max, .05))
 
-    C = clf.predict(np.c_[A.ravel(), B.ravel()])
-    C = C.reshape(A.shape)
+def calculate_priors(y):
+    # Removed X from the arguments since it's not relevant in the computation
+    """Return the a-priori probabilities for every class
 
-    cmap = plt.cm.get_cmap('tab10')
+    Args:
+        y (np.ndarray): Labels for dataset (nsamples)
 
-    contour = ax.contourf(A, B, C, cmap=cmap, alpha=0.6)
-    scatter = ax.scatter(X1, X2, c=y, cmap=cmap, s=15, alpha=0.9, edgecolors='k')
-    legend = ax.legend(*scatter.legend_elements(), loc="best", title="Classes")
-    ax.add_artist(legend)
-
-    ax.set_xlabel(X1_label)
-    ax.set_ylabel(X2_label)
-    ax.set_xticks(())
-    ax.set_yticks(())
-    ax.set_title('Decision surface of the Classifier')
-
-    return fig, ax
+    Returns:
+        (np.ndarray): (n_classes) Prior probabilities for every class
+    """
+    _, freqs = np.unique(y, return_counts=True)
+    return freqs / len(y)
 
 
 def plot_learning_curve(estimator, X, y,
-                        title='Learning Curves', ax=None, ylim=None,
+                        title='Learning Curves', ax=None,
                         cv=5, train_sizes=np.linspace(0., 1., 11)[1:]):
     # https://scikit-learn.org/stable/auto_examples/model_selection/plot_learning_curve.html
 
@@ -445,9 +320,6 @@ def plot_learning_curve(estimator, X, y,
     # --- Plotting part ---
     if ax is None:
         _, ax = plt.subplots()
-
-    if ylim is not None:
-        ax.set_ylim(*ylim)
 
     # Plot the curves
     ax.plot(train_sizes, train_scores_mean, 'o-', color='r', label='Training score')
@@ -469,65 +341,16 @@ def plot_learning_curve(estimator, X, y,
     ax.set_title(title)
     ax.set_xlabel('Training set size')
     ax.set_ylabel('Estimator score')
-    ax.legend(loc='best')
+    plt.legend(loc='best')
     ax.grid()
 
     return ax
 
 
-# ------------------- STEP 13 -------------------
-def step13():
-    score = evaluate_classifier(EuclideanDistanceClassifier(), X_train, y_train)
-    print('Score of euclidean distance classifier when using all dimensions:', score)
-
-    reductor = Pipeline([('scaling', StandardScaler()), ('svd', TruncatedSVD(n_components=2))])
-    X_train_reduced = reductor.fit_transform(X_train)
-    X_test_reduced = reductor.transform(X_test)
-
-    evr = reductor.named_steps['svd'].explained_variance_ratio_
-    print('Explained variance ratio: PC1 = {:.2%}, PC2 = {:.2%}'.format(*evr))
-
-    score_reduced = evaluate_classifier(EuclideanDistanceClassifier(), X_train_reduced, y_train)
-    print('Score of euclidean distance classifier when using only the first two principal components:', score_reduced)
-
-    plot_region(EuclideanDistanceClassifier().fit(X_train_reduced, y_train),
-                X_test_reduced[:, 0], X_test_reduced[:, 1], y_test,
-                X1_label='Principal Component 1',
-                X2_label='Principal Component 2')
-    plt.show()
-
-    # pred1 = EuclideanDistanceClassifier().fit(X_train_reduced, y_train).predict(X_test_reduced[y_test == 1.])
-    # print('The boundary for 1 does not make sense...'
-    #       f'The classifier is 98.5% accurate on 1...')
-    # plt.hist(pred1)
-    # plt.show()
-
-    clf = EuclideanDistanceClassifier()
-    plot_learning_curve(clf, X_train, y_train,
-                        title='Learning Curves (Euclidean Classifier)')
-    plt.show()
-
-
-# step13()
-# -----------------------------------------------
-
-
-def calculate_priors(y):
-    # Removed X from the arguments since it's not relevant in the computation
-    """Return the a-priori probabilities for every class
-
-    Args:
-        y (np.ndarray): Labels for dataset (nsamples)
-
-    Returns:
-        (np.ndarray): (n_classes) Prior probabilities for every class
-    """
-    _, freqs = np.unique(y, return_counts=True)
-    return freqs / np.size(y)
-
-
-def step14():
-    print(calculate_priors(y_train))
+# clf = EuclideanDistanceClassifier()
+# plot_learning_curve(clf, X_train, y_train,
+#                     title='Learning Curves (Euclidean Classifier)')
+# plt.show()
 
 
 class CustomNBClassifier(BaseEstimator, ClassifierMixin):
@@ -570,11 +393,15 @@ class CustomNBClassifier(BaseEstimator, ClassifierMixin):
         return self
 
     def _losses(self, X):
+        # The class which maximizes the likelihood will be equal to np.argmin(self._losses(X))
+        # The evidence is not included since it's irrelevant in calculating the argmax class.
+        # In *Naive* Bayes we assume independence of the features when the class is given.
+        # We will also assume that the likelihood is normally distributed. (GAUSSIAN Naive Bayes)
         X = np.expand_dims(X, axis=1)
         sigmas = self.sigmas_ + self.epsilon_
         log_priors = np.log(self.priors_)
         sum_log_sigmas = np.sum(np.log(sigmas), axis=1)
-        sum_squares = np.sum((X - self.mus_) ** 2 / sigmas, axis=-1)
+        sum_squares = np.sum((X - self.mus_)**2 / sigmas, axis=-1)
         likelihood_equivalent = log_priors - 0.5 * sum_log_sigmas - 0.5 * sum_squares
         return -likelihood_equivalent
 
@@ -607,36 +434,35 @@ class CustomNBClassifier(BaseEstimator, ClassifierMixin):
     #     for X based on ground truth y
     #     """
     #     y_pred = self.predict(X)
+    #     return np.mean(y == y_pred)
 
-# --------- Step 15, 16 -----------
-def train_eval(estimator):
-    estimator.fit(X_train, y_train)
-    return estimator.score(X_test, y_test)
 
+
+# def train_eval(estimator):
+#     estimator.fit(X_train, y_train)
+#     return estimator.score(X_test, y_test)
+#
 #
 # score_custom = train_eval(CustomNBClassifier())
 #
+# from sklearn.naive_bayes import GaussianNB
 # score_sklearn = train_eval(GaussianNB())
 #
 # score_unit_var = train_eval(CustomNBClassifier(use_unit_variance=True))
 #
-#
 # n_classes = np.size(np.unique(y_train))
 # uniform_prior = np.ones(n_classes) / n_classes
-# score_uniform_priors = train_eval(CustomNBClassifier(priors=uniform_prior))
 # score_unit_var_uniform_priors = train_eval(CustomNBClassifier(priors=uniform_prior, use_unit_variance=True))
 #
 # score_eucl = train_eval(EuclideanDistanceClassifier())
 #
-# print(f'''\
-# {score_custom = }
+# print(f'''{score_custom = }
 # {score_sklearn = }
 # {score_unit_var = }
-# {score_uniform_priors = }
 # {score_unit_var_uniform_priors = }
 # {score_eucl = }''')
-#
-#
+
+
 # clf1 = CustomNBClassifier()
 # clf1.fit(X_train, y_train)
 # log_proba1 = clf1.predict_log_proba(X_test)
@@ -656,30 +482,4 @@ def train_eval(estimator):
 # mus = clf.mus_
 # diffs = np.expand_dims(mus, 1) - mus  # (10, 10, 256)
 # dists_squared = np.einsum('...j, ...j', diffs, diffs)  # (10, 10)
-#
-# X = np.vstack([X_train, X_test])
-# y = np.hstack([y_train, y_test])
-# fig, axs = plt.subplots(2, figsize=(12,12))
-# plot_learning_curve(CustomNBClassifier(), X, y, ax=axs[0],
-#                     title='Calculated variance', ylim=(0.6, 0.9))
-# plot_learning_curve(CustomNBClassifier(use_unit_variance=True), X, y, ax=axs[1],
-#                     title='Unit variance', ylim=(0.6, 0.9))
-# plt.show()
-# ----------------------------
 
-# ------------------- STEP 17 -------------------
-
-def step17():
-    estimators = {
-        'Gaussian Naive Bayes' : GaussianNB(),
-        'K Nearest Neighbors' : KNeighborsClassifier(n_neighbors=5),
-        **{f'SVM with {kernel} kernel': SVC(kernel=kernel) for kernel in ('linear', 'poly', 'rbf', 'sigmoid')}
-    }
-    for name, estimator in estimators.items():
-        print(f'{name}: {train_eval(estimator)}')
-
-# -----------------------------------------------
-
-
-def step18():
-    pass
