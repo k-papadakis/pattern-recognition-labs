@@ -8,6 +8,7 @@ from scipy.special import logsumexp
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import TruncatedSVD
+from sklearn.metrics import confusion_matrix
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.model_selection import cross_val_score, learning_curve
 from sklearn.utils.multiclass import unique_labels
@@ -412,9 +413,12 @@ def plot_region(clf, X1, X2, y, X1_label, X2_label):
     C = clf.predict(np.c_[A.ravel(), B.ravel()])
     C = C.reshape(A.shape)
 
-    cmap = plt.cm.get_cmap('tab10')
+    classes = clf.classes_
+    levels = np.r_[classes, classes[-1] + 1] - 0.5
 
-    contour = ax.contourf(A, B, C, cmap=cmap, alpha=0.6)
+    cmap = plt.cm.get_cmap('tab10' if classes.size <= 10 else 'tab20')
+
+    contour = ax.contourf(A, B, C, cmap=cmap, alpha=0.6, levels=levels)
     scatter = ax.scatter(X1, X2, c=y, cmap=cmap, s=15, alpha=0.9, edgecolors='k')
     legend = ax.legend(*scatter.legend_elements(), loc="best", title="Classes")
     ax.add_artist(legend)
@@ -475,14 +479,51 @@ def plot_learning_curve(estimator, X, y,
     return ax
 
 
+def reduce_two_dim(X_train, X_test):
+    reductor = Pipeline([('scaling', StandardScaler()), ('svd', TruncatedSVD(n_components=2))])
+    X_train_reduced = reductor.fit_transform(X_train)
+    X_test_reduced = reductor.transform(X_test)
+    return X_train_reduced, X_test_reduced, reductor
+
+
+def plot_confusion_matrix(clf, X, y_true):
+
+    y_pred = clf.predict(X)
+    labels = clf.classes_
+    n = labels.size
+    A = confusion_matrix(y_true, y_pred, labels=labels)
+
+    fig, ax = plt.subplots()
+    im = ax.imshow(A)
+
+    ax.xaxis.tick_top()
+    ax.xaxis.set_label_position('top')
+
+    ax.set_xticks(np.arange(n))
+    ax.set_yticks(np.arange(n))
+    ax.set_xticklabels(labels)
+    ax.set_yticklabels(labels)
+    ax.set_xlabel('y_pred')
+    ax.set_ylabel('y_true')
+
+    plt.setp(ax.get_xticklabels(), rotation=45, ha='right', rotation_mode='default')
+    for i in range(n):
+        for j in range(n):
+            text = ax.text(j, i, A[i, j], ha='center', va='center', color='w')
+
+    ax.set_title('Confusion Matrix')
+    fig.tight_layout()
+
+    return fig, ax
+
+
 # ------------------- STEP 13 -------------------
 def step13():
     score = evaluate_classifier(EuclideanDistanceClassifier(), X_train, y_train)
     print('Score of euclidean distance classifier when using all dimensions:', score)
 
-    reductor = Pipeline([('scaling', StandardScaler()), ('svd', TruncatedSVD(n_components=2))])
-    X_train_reduced = reductor.fit_transform(X_train)
-    X_test_reduced = reductor.transform(X_test)
+    X_train_reduced, X_test_reduced, reductor = reduce_two_dim(X_train, X_test)
+    clf = EuclideanDistanceClassifier().fit(X_train_reduced, y_train)
 
     evr = reductor.named_steps['svd'].explained_variance_ratio_
     print('Explained variance ratio: PC1 = {:.2%}, PC2 = {:.2%}'.format(*evr))
@@ -490,25 +531,23 @@ def step13():
     score_reduced = evaluate_classifier(EuclideanDistanceClassifier(), X_train_reduced, y_train)
     print('Score of euclidean distance classifier when using only the first two principal components:', score_reduced)
 
-    plot_region(EuclideanDistanceClassifier().fit(X_train_reduced, y_train),
+    plot_region(clf,
                 X_test_reduced[:, 0], X_test_reduced[:, 1], y_test,
                 X1_label='Principal Component 1',
                 X2_label='Principal Component 2')
     plt.show()
 
-    # pred1 = EuclideanDistanceClassifier().fit(X_train_reduced, y_train).predict(X_test_reduced[y_test == 1.])
-    # print('The boundary for 1 does not make sense...'
-    #       f'The classifier is 98.5% accurate on 1...')
-    # plt.hist(pred1)
-    # plt.show()
+    plot_confusion_matrix(clf, X_test_reduced, y_test)
+    plt.show()
+    print('The classifier has learned to 1 really well,'
+          'but it sometimes misinterprets non-1s as 1s. ')
 
-    clf = EuclideanDistanceClassifier()
-    plot_learning_curve(clf, X_train, y_train,
+    plot_learning_curve(EuclideanDistanceClassifier(), X_train, y_train,
                         title='Learning Curves (Euclidean Classifier)')
     plt.show()
 
 
-# step13()
+step13()
 # -----------------------------------------------
 
 
