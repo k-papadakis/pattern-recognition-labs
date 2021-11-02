@@ -57,13 +57,10 @@ def show_sample(X, index):
 # ------------------- STEP 2 -------------------
 def step2():
     show_sample(X_train, 131)
-
-
-# step2()
 # ----------------------------------------------
 
 
-def plot_digits_samples(X, y):
+def plot_digits_samples(X, y, suptitle='Labeled Images'):
     """Takes a dataset and selects one example from each label and plots it in subplots
 
     Args:
@@ -108,7 +105,7 @@ def plot_digits_samples(X, y):
     for ax in axs.flat[len(images):]:
         ax.axis('off')
 
-    fig.suptitle('Labeled Images', size='xx-large')
+    fig.suptitle(suptitle, size='xx-large')
 
     plt.show()
 
@@ -117,8 +114,6 @@ def plot_digits_samples(X, y):
 def step3():
     plot_digits_samples(X_train, y_train)
 
-
-# step3()
 # ----------------------------------------------
 
 
@@ -154,8 +149,6 @@ def digit_mean_at_pixel(X, y, digit, pixel=(10, 10)):
 def step4():
     print(digit_mean_at_pixel(X_train, y_train, 0))
 
-
-# step4()
 # ----------------------------------------------
 
 
@@ -188,7 +181,6 @@ def step5():
     print(digit_variance_at_pixel(X_train, y_train, 0))
 
 
-# step5()
 # ----------------------------------------------
 
 def digit_mean(X, y, digit):
@@ -246,7 +238,6 @@ def step6_7_8():
     plot_mean_variance(0)
 
 
-# step6_7_8()
 # ---------------------------------------------------
 
 
@@ -256,11 +247,9 @@ def step9():
     digits = np.unique(y_train)
     d_means = np.vstack([digit_mean(X_train, y_train, digit) for digit in digits])
     d_vars = np.vstack([digit_variance(X_train, y_train, digit) for digit in digits])
-    plot_digits_samples(d_means, digits)
-    # plot_digits_samples(d_vars, digits)  # Not requested
+    plot_digits_samples(d_means, digits, suptitle='Mean')
+    plot_digits_samples(d_vars, digits, suptitle='Variance')  # Not requested
 
-
-# step9()
 # ----------------------------------------------
 
 
@@ -320,12 +309,12 @@ def step10():
     pred = pred[0]
     print(f'prediction = {pred}, true_label = {int(y)}')
     plt.imshow(X_test[101].reshape(16, 16), cmap='Greys')
+    plt.axis('off')
     plt.show()
 
 
 # step10()  # This is indeed a poorly written "6"
 # -----------------------------------------------
-
 
 # ------------------- STEP 11 -------------------
 def step11():
@@ -335,10 +324,7 @@ def step11():
     y_pred = euclidean_distance_classifier(X_test, d_means)
     print('Euclidean distance classifier accuracy:', np.mean(y_pred == y_test))
 
-
-# step11()
 # -----------------------------------------------
-
 
 # ------------------- STEP 12 -------------------
 class EuclideanDistanceClassifier(BaseEstimator, ClassifierMixin):
@@ -571,7 +557,7 @@ def step13():
                         title='Learning Curves (Euclidean Classifier)')
     plt.show()
 
-
+# step13()
 # -----------------------------------------------
 
 
@@ -592,6 +578,7 @@ def calculate_priors(y):
 def step14():
     print(calculate_priors(y_train))
 
+# step14()
 
 class CustomNBClassifier(BaseEstimator, ClassifierMixin):
     """Custom implementation Naive Bayes classifier"""
@@ -678,68 +665,76 @@ def train_eval(estimator):
     return estimator.score(X_test, y_test)
 
 
-#
-# score_custom = train_eval(CustomNBClassifier())
-#
-# score_sklearn = train_eval(GaussianNB())
-#
-# score_unit_var = train_eval(CustomNBClassifier(use_unit_variance=True))
-#
-#
-# n_classes = np.size(np.unique(y_train))
-# uniform_prior = np.ones(n_classes) / n_classes
-# score_uniform_priors = train_eval(CustomNBClassifier(priors=uniform_prior))
-# score_unit_var_uniform_priors = train_eval(CustomNBClassifier(priors=uniform_prior, use_unit_variance=True))
-#
-# score_eucl = train_eval(EuclideanDistanceClassifier())
-#
-# print(f'''\
-# {score_custom = }
-# {score_sklearn = }
-# {score_unit_var = }
-# {score_uniform_priors = }
-# {score_unit_var_uniform_priors = }
-# {score_eucl = }''')
-#
-# prob_eucl = EuclideanDistanceClassifier().fit(X_train, y_train).predict_proba(X_test)
-# prob_unit_var_uniform_priors = CustomNBClassifier(use_unit_variance=True, priors=uniform_prior)\
-#     .fit(X_train, y_train).predict_proba(X_test)
-# print('Probabilities predicted by Euclidean and GNB unit variance and uniform prior are equal:',
-#       np.all(np.isclose(prob_eucl, prob_unit_var_uniform_priors)))
-#
-# prob_gnb_custom = CustomNBClassifier().fit(X_train, y_train).predict_proba(X_test)
-# prob_gnb_sklearn = GaussianNB().fit(X_train, y_train).predict_proba(X_test)
-# print('Probabilities predicted by the custom implementation are close to the sklearn implementation up to 2 digits:',
-#       np.all(np.isclose(prob_gnb_sklearn, prob_gnb_custom, atol=1e-2)))
-#
-# clf1 = CustomNBClassifier()
-# clf1.fit(X_train, y_train)
-# log_proba1 = clf1.predict_log_proba(X_test)
-# proba1 = clf1.predict_proba(X_test)
-# pred1 = clf1.predict(X_test)
-# score1 = clf1.score(X_test, y_test)
-#
-# clf2 = GaussianNB()
-# clf2.fit(X_train, y_train)
-# log_proba2 = clf2.predict_log_proba(X_test)
-# proba2 = clf2.predict_proba(X_test)
-# pred2 = clf2.predict(X_test)
-# score2 = clf2.score(X_test, y_test)
-#
-# clf = CustomNBClassifier()
-# clf.fit(X_train, y_train)
-# mus = clf.mus_
-# diffs = np.expand_dims(mus, 1) - mus  # (10, 10, 256)
-# dists_squared = np.einsum('...j, ...j', diffs, diffs)  # (10, 10)
-#
-# X = np.vstack([X_train, X_test])
-# y = np.hstack([y_train, y_test])
-# fig, axs = plt.subplots(2, figsize=(12,12))
-# plot_learning_curve(CustomNBClassifier(), X, y, ax=axs[0],
-#                     title='Calculated variance', ylim=(0.6, 0.9))
-# plot_learning_curve(CustomNBClassifier(use_unit_variance=True), X, y, ax=axs[1],
-#                     title='Unit variance', ylim=(0.6, 0.9))
-# plt.show()
+def step15_16():
+    # This is spaghetti, but I had not time to correct it
+    score_custom = train_eval(CustomNBClassifier())
+
+    score_sklearn = train_eval(GaussianNB())
+
+    score_unit_var = train_eval(CustomNBClassifier(use_unit_variance=True))
+
+    n_classes = np.size(np.unique(y_train))
+    uniform_prior = np.ones(n_classes) / n_classes
+    score_uniform_priors = train_eval(CustomNBClassifier(priors=uniform_prior))
+    score_unit_var_uniform_priors = train_eval(CustomNBClassifier(priors=uniform_prior, use_unit_variance=True))
+
+    score_eucl = train_eval(EuclideanDistanceClassifier())
+
+    print(f'''\
+    {score_custom = }
+    {score_sklearn = }
+    {score_unit_var = }
+    {score_uniform_priors = }
+    {score_unit_var_uniform_priors = }
+    {score_eucl = }''')
+
+    prob_eucl = EuclideanDistanceClassifier().fit(X_train, y_train).predict_proba(X_test)
+    prob_unit_var_uniform_priors = CustomNBClassifier(use_unit_variance=True, priors=uniform_prior)\
+        .fit(X_train, y_train).predict_proba(X_test)
+    print('Probabilities predicted by Euclidean and GNB unit variance and uniform prior are equal:',
+          np.all(np.isclose(prob_eucl, prob_unit_var_uniform_priors)))
+
+    prob_gnb_custom = CustomNBClassifier().fit(X_train, y_train).predict_proba(X_test)
+    prob_gnb_sklearn = GaussianNB().fit(X_train, y_train).predict_proba(X_test)
+    print('Probabilities predicted by the custom implementation are close to the sklearn implementation up to 2 digits:',
+          np.all(np.isclose(prob_gnb_sklearn, prob_gnb_custom, atol=1e-2)))
+
+
+    # ---- EXTRA STUFF - NOT ASKED ----
+    clf1 = CustomNBClassifier()
+    clf1.fit(X_train, y_train)
+    log_proba1 = clf1.predict_log_proba(X_test)
+    proba1 = clf1.predict_proba(X_test)
+    pred1 = clf1.predict(X_test)
+    score1 = clf1.score(X_test, y_test)
+
+    clf2 = GaussianNB()
+    clf2.fit(X_train, y_train)
+    log_proba2 = clf2.predict_log_proba(X_test)
+    proba2 = clf2.predict_proba(X_test)
+    pred2 = clf2.predict(X_test)
+    score2 = clf2.score(X_test, y_test)
+
+    clf = CustomNBClassifier()
+    clf.fit(X_train, y_train)
+    mus = clf.mus_
+    diffs = np.expand_dims(mus, 1) - mus  # (10, 10, 256)
+    dists_squared = np.einsum('...j, ...j', diffs, diffs)  # (10, 10)
+    print(dists_squared)
+
+    X = np.vstack([X_train, X_test])
+    y = np.hstack([y_train, y_test])
+    fig, axs = plt.subplots(2, figsize=(12,12))
+    plot_learning_curve(CustomNBClassifier(), X, y, ax=axs[0],
+                        title='Calculated variance', ylim=(0.6, 0.9))
+    plot_learning_curve(CustomNBClassifier(use_unit_variance=True), X, y, ax=axs[1],
+                        title='Unit variance', ylim=(0.6, 0.9))
+    plt.show()
+
+
+step15_16()
+# %%
+
 # ----------------------------
 
 # ------------------- STEP 17 -------------------
@@ -754,6 +749,8 @@ def step17():
     for name, estimator in estimators.items():
         print(f'{name}: {train_eval(estimator)}')
 
+
+# step17()
 
 # -----------------------------------------------
 
@@ -808,3 +805,4 @@ def step18():
     train_eval_bagging(KNeighborsClassifier(1), X_all, y_all)
 
 
+# step18()

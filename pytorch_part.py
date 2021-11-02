@@ -1,13 +1,12 @@
 import numpy as np
 import torch
 from torch import nn
-from torch.utils.data import Dataset, DataLoader, TensorDataset
+from torch.utils.data import Dataset, DataLoader, TensorDataset, random_split
 
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.multiclass import unique_labels
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 
-from sklearn.pipeline import Pipeline
 from sklearn.model_selection import GridSearchCV
 
 
@@ -58,13 +57,12 @@ class CustomDNN(nn.Module):
 
 class DNN(BaseEstimator, ClassifierMixin):
 
-    def __init__(self, dim_in, dim_out, d_hidden, activation='relu', lr=1e-2, epochs=10, batch_size=64):
-        # No initialization besides simply assigning the __init__ signatures to attributes of self.
+    def __init__(self, dim_in, dim_hidden, activation='relu', lr=1e-2, epochs=20, batch_size=64):
+        # No initialization besides simply assigning the __init__ signature to attributes of self.
         # All other initialization should go to the fit method.
-        # Initializing self.model, self.criterion, self,optimizer here goes against best practices.
+        # Initializing self.model, self.criterion, self,optimizer goes against best practices.
         self.dim_in = dim_in
-        self.dim_out = dim_out
-        self.d_hidden = d_hidden
+        self.dim_hidden = dim_hidden
         self.activation = activation
         self.lr = lr
         self.epochs = epochs
@@ -79,13 +77,17 @@ class DNN(BaseEstimator, ClassifierMixin):
         X, y = check_X_y(X, y)
         self.classes_ = unique_labels(y)
 
+        # This is kind of unnecessary, but writing it just to showcase torch.utils.data
         X_tensor = torch.tensor(X, dtype=torch.float32)
         y_tensor = torch.tensor(y, dtype=torch.torch.int64)
         dataset = TensorDataset(X_tensor, y_tensor)
         dataloader = DataLoader(dataset, batch_size=self.batch_size)
 
         self.criterion_ = torch.nn.CrossEntropyLoss(reduction='mean')
-        self.model_ = CustomDNN(self.dim_in, self.dim_out, self.d_hidden, self.activation)
+        self.model_ = CustomDNN(dim_in=self.dim_in,
+                                dim_out=len(self.classes_),
+                                dim_hidden=self.dim_hidden,
+                                activation=self.activation)
         self.optimizer_ = torch.optim.SGD(self.model_.parameters(), lr=self.lr)
         self.losses_ = []
 
@@ -108,11 +110,16 @@ class DNN(BaseEstimator, ClassifierMixin):
         check_is_fitted(self)
         X = check_array(X)
         X_tensor = torch.tensor(X, dtype=torch.float32)
+        dataset = TensorDataset(X_tensor)
+        dataloader = DataLoader(dataset, batch_size=self.batch_size)
+        probs = []
         self.model_.eval()
         with torch.no_grad():
-            logits = self.model_(X_tensor)
-            probs = torch.nn.Softmax(dim=1)(logits)
-        return probs.numpy()
+            for X_batch, in dataloader:
+                logits = self.model_(X_batch)
+                probs_batch = torch.nn.Softmax(dim=1)(logits)
+                probs.append(probs_batch.numpy())
+        return np.vstack(probs)
 
     def predict(self, X):
         probs = self.predict_proba(X)
@@ -120,28 +127,40 @@ class DNN(BaseEstimator, ClassifierMixin):
         return self.classes_[indices]
 
 
-def read_data(file, delimiter=None):
-    data = np.loadtxt(file, delimiter=delimiter)
-    X = data[:, 1:]
-    y = data[:, 0]
-    return X, y
+def split_dataset(dataset, frac=0.8):
+    n = len(dataset)
+    n_train = int(n * frac)
+    n_val = n - n_train
+    train, val = random_split(dataset, [n_train, n_val])
+    return (train.indices, val.indices)
 
 
-X_train, y_train = read_data('data/train.txt')
-X_test, y_test = read_data('data/test.txt')
+def step19():
+    train_dataset = MnistDataset('data/train.txt')
+    test_dataset = MnistDataset('data/test.txt')
+
+    # # Create loaders. Not going to use those as sklearn is meant to work with numpy.ndarray
+    # train_loader = DataLoader(train_dataset, batch_size=64)
+    # test_loader = DataLoader(test_dataset, batch_size=64)
+
+    # Get the numpy.ndarrays
+    X_train, y_train = train_dataset.images, train_dataset.labels
+    X_test, y_test = test_dataset.images, test_dataset.labels
+
+    dnn = DNN(dim_in=256, dim_hidden=(16, 32), activation='relu', lr=1e-2, epochs=20, batch_size=64)
+
+    param_grid = {
+        'activation': ('relu', 'sigmoid'),
+        'lr': np.logspace(-5, -1, num=3, base=10),
+        'epochs': [10, 20],
+        'dim_hidden': [(64,), (32, 16)]
+    }
+    cv = (split_dataset(X_train),)
+    clf = GridSearchCV(dnn, param_grid=param_grid, cv=cv, n_jobs=-1)
+    clf.fit(X_train, y_train)
+    print(f'The best parameters are {clf.best_params_} with score {clf.best_score_:.6f}')
+    print(f'The score on the test set is {clf.best_estimator_.score(X_test, y_test): .6f}')
 
 
-# train_path = 'data/train.txt'
-# test_path = 'data/test.txt'
-# train_loader = DataLoader(MnistDataset(train_path), batch_size=64, shuffle=True)
-# test_loader = DataLoader(MnistDataset(test_path), batch_size=64, shuffle=True)
-
-
-model = DNN(256, 10, (64,))
-model.fit(X_train, y_train)
-score = model.score(X_test, y_test)
-
-
-
-
-
+if __name__ == '__main__':
+    step19()
