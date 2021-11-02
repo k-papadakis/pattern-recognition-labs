@@ -47,11 +47,13 @@ class CustomDNN(nn.Module):
             self.add_module(self._module_template.format(i), nn.Linear(self.dim_all[i-1], self.dim_all[i]))
 
     def forward(self, x):
-        for i in range(1, len(self.dim_all)):
+        for i in range(1, len(self.dim_all) - 1):
             layer = self.get_submodule(self._module_template.format(i))
             x = layer(x)
             x = self.activation(x)
-        return x  # logits
+        final_layer = self.get_submodule(self._module_template.format(len(self.dim_all) - 1))
+        x = final_layer(x)
+        return x
 
 
 
@@ -163,4 +165,7 @@ def step19():
 
 
 if __name__ == '__main__':
-    step19()
+    for i in range(10):
+        print(str(i) + '-'*40)
+        step19()
+        print()
