@@ -1,8 +1,7 @@
 from math import isqrt
 
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.special import logsumexp
 
 from sklearn.pipeline import Pipeline
@@ -16,7 +15,10 @@ from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
-
+from sklearn.ensemble import VotingClassifier, BaggingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.utils._testing import ignore_warnings
+from sklearn.exceptions import ConvergenceWarning
 
 
 def read_data(file, delimiter=None):
@@ -29,7 +31,8 @@ def read_data(file, delimiter=None):
 # ------------------- STEP 1 -------------------
 X_train, y_train = read_data('data/train.txt')
 X_test, y_test = read_data('data/test.txt')
-
+X_all = np.r_[X_train, X_test]
+y_all = np.r_[y_train, y_test]
 
 # ----------------------------------------------
 
@@ -238,6 +241,7 @@ def plot_mean_variance(digit):
     # Conclusion: The border has the most variance which should be pretty obvious as to why.
     plt.show()
 
+
 def step6_7_8():
     plot_mean_variance(0)
 
@@ -300,8 +304,8 @@ def euclidean_distance_classifier(X, X_mean):
 
     X_mean = np.expand_dims(X_mean, axis=1)
     diffs = X - X_mean
-    dists2 = np.einsum('ijk, ijk -> ij', diffs, diffs)
-    y_pred = np.argmin(dists2, axis=0)  # Index is the same as digit in our case
+    dists2 = np.einsum('ijk, ijk -> ji', diffs, diffs)
+    y_pred = np.argmin(dists2, axis=1)  # Index is the same as digit in our case
     return y_pred
 
 
@@ -365,6 +369,12 @@ class EuclideanDistanceClassifier(BaseEstimator, ClassifierMixin):
 
         return self
 
+    def dists_squared(self, X):
+        X_means = np.expand_dims(self.X_means_, axis=1)
+        diffs = X - X_means
+        dists2 = np.einsum('ijk, ijk -> ji', diffs, diffs)
+        return dists2
+
     def predict(self, X):
         """
         Make predictions for X based on the
@@ -372,8 +382,21 @@ class EuclideanDistanceClassifier(BaseEstimator, ClassifierMixin):
         """
         check_is_fitted(self)
         X = check_array(X)
-        indices = euclidean_distance_classifier(X, self.X_means_)
+        dists2 = self.dists_squared(X)
+        indices = np.argmin(dists2, axis=1)
         return self.classes_[indices]
+
+    def predict_log_proba(self, X):
+        check_is_fitted(self)
+        X = check_array(X)
+        log_likelihood_equivalent = - 0.5 * self.dists_squared(X)  # Assuming unit variance
+        log_normalizer = logsumexp(log_likelihood_equivalent, axis=1)
+        log_normalizer = np.expand_dims(log_normalizer, axis=1)
+        return log_likelihood_equivalent - log_normalizer
+
+    def predict_proba(self, X):
+        return np.exp(self.predict_log_proba(X))
+
 
     # # ClassifierMixin automatically implements this
     # def score(self, X, y):
@@ -383,6 +406,8 @@ class EuclideanDistanceClassifier(BaseEstimator, ClassifierMixin):
     #     """
     #     y_pred = self.predict(X)
     #     return np.mean(y == y_pred)
+
+
 # -----------------------------------------------
 
 
@@ -402,7 +427,7 @@ def evaluate_classifier(clf, X, y, n_folds=5):
     return np.mean(scores)
 
 
-def plot_region(clf, X1, X2, y, X1_label, X2_label):
+def plot_regions(clf, X1, X2, y, X1_label='X1', X2_label='X2'):
     fig, ax = plt.subplots(figsize=(12, 12))
 
     X1_min, X1_max = X1.min() - 1, X1.max() + 1
@@ -414,19 +439,21 @@ def plot_region(clf, X1, X2, y, X1_label, X2_label):
     C = C.reshape(A.shape)
 
     classes = clf.classes_
-    levels = np.r_[classes, classes[-1] + 1] - 0.5
-
     cmap = plt.cm.get_cmap('tab10' if classes.size <= 10 else 'tab20')
 
-    contour = ax.contourf(A, B, C, cmap=cmap, alpha=0.6, levels=levels)
-    scatter = ax.scatter(X1, X2, c=y, cmap=cmap, s=15, alpha=0.9, edgecolors='k')
+    plt.imshow(C, cmap=cmap, origin="lower", extent=(X1_min, X1_max, X2_min, X2_max), alpha=0.8)
+    # # This also works
+    # min_diff = np.min(np.diff(classes))
+    # levels = np.r_[classes, classes[-1] + min_diff] - 0.5 * min_diff
+    # ax.contourf(A, B, C, cmap=cmap, alpha=0.6, levels=levels)
+    scatter = ax.scatter(X1, X2, c=y, cmap=cmap, s=15, alpha=0.95, edgecolors='k')
     legend = ax.legend(*scatter.legend_elements(), loc="best", title="Classes")
     ax.add_artist(legend)
 
     ax.set_aspect('equal', adjustable='box')
     ax.set_xlabel(X1_label)
     ax.set_ylabel(X2_label)
-    ax.set_title('Decision surface of the Classifier')
+    ax.set_title('Decision Regions of the Classifier')
 
     return fig, ax
 
@@ -486,7 +513,6 @@ def reduce_two_dim(X_train, X_test):
 
 
 def plot_confusion_matrix(clf, X, y_true):
-
     y_pred = clf.predict(X)
     labels = clf.classes_
     n = labels.size
@@ -530,10 +556,10 @@ def step13():
     score_reduced = evaluate_classifier(EuclideanDistanceClassifier(), X_train_reduced, y_train)
     print('Score of euclidean distance classifier when using only the first two principal components:', score_reduced)
 
-    plot_region(clf,
-                X_test_reduced[:, 0], X_test_reduced[:, 1], y_test,
-                X1_label='Principal Component 1',
-                X2_label='Principal Component 2')
+    plot_regions(clf,
+                 X_test_reduced[:, 0], X_test_reduced[:, 1], y_test,
+                 X1_label='Principal Component 1',
+                 X2_label='Principal Component 2')
     plt.show()
 
     plot_confusion_matrix(clf, X_test_reduced, y_test)
@@ -546,7 +572,6 @@ def step13():
     plt.show()
 
 
-step13()
 # -----------------------------------------------
 
 
@@ -613,16 +638,16 @@ class CustomNBClassifier(BaseEstimator, ClassifierMixin):
         log_priors = np.log(self.priors_)
         sum_log_sigmas = np.sum(np.log(sigmas), axis=1)
         sum_squares = np.sum((X - self.mus_) ** 2 / sigmas, axis=-1)
-        likelihood_equivalent = log_priors - 0.5 * sum_log_sigmas - 0.5 * sum_squares
-        return -likelihood_equivalent
+        log_likelihood_equivalent = log_priors - 0.5 * sum_log_sigmas - 0.5 * sum_squares
+        return -log_likelihood_equivalent
 
     def predict_log_proba(self, X):
         check_is_fitted(self)
         X = check_array(X)
-        likelihood_equivalent = -self._losses(X)
-        log_normalizer = logsumexp(likelihood_equivalent, axis=1)
+        log_likelihood_equivalent = -self._losses(X)
+        log_normalizer = logsumexp(log_likelihood_equivalent, axis=1)
         log_normalizer = np.expand_dims(log_normalizer, axis=1)
-        return likelihood_equivalent - log_normalizer
+        return log_likelihood_equivalent - log_normalizer
 
     def predict_proba(self, X):
         return np.exp(self.predict_log_proba(X))
@@ -641,15 +666,17 @@ class CustomNBClassifier(BaseEstimator, ClassifierMixin):
     # # ClassifierMixin automatically implements this
     # def score(self, X, y):
     #     """
-    #     Return accuracy score on the predictions
+    #     Return accuracy score on the predictionsdy
     #     for X based on ground truth y
     #     """
     #     y_pred = self.predict(X)
+
 
 # --------- Step 15, 16 -----------
 def train_eval(estimator):
     estimator.fit(X_train, y_train)
     return estimator.score(X_test, y_test)
+
 
 #
 # score_custom = train_eval(CustomNBClassifier())
@@ -674,6 +701,16 @@ def train_eval(estimator):
 # {score_unit_var_uniform_priors = }
 # {score_eucl = }''')
 #
+# prob_eucl = EuclideanDistanceClassifier().fit(X_train, y_train).predict_proba(X_test)
+# prob_unit_var_uniform_priors = CustomNBClassifier(use_unit_variance=True, priors=uniform_prior)\
+#     .fit(X_train, y_train).predict_proba(X_test)
+# print('Probabilities predicted by Euclidean and GNB unit variance and uniform prior are equal:',
+#       np.all(np.isclose(prob_eucl, prob_unit_var_uniform_priors)))
+#
+# prob_gnb_custom = CustomNBClassifier().fit(X_train, y_train).predict_proba(X_test)
+# prob_gnb_sklearn = GaussianNB().fit(X_train, y_train).predict_proba(X_test)
+# print('Probabilities predicted by the custom implementation are close to the sklearn implementation up to 2 digits:',
+#       np.all(np.isclose(prob_gnb_sklearn, prob_gnb_custom, atol=1e-2)))
 #
 # clf1 = CustomNBClassifier()
 # clf1.fit(X_train, y_train)
@@ -709,15 +746,65 @@ def train_eval(estimator):
 
 def step17():
     estimators = {
-        'Gaussian Naive Bayes' : GaussianNB(),
-        'K Nearest Neighbors' : KNeighborsClassifier(n_neighbors=5),
+        'Euclidean Distance Classifier': EuclideanDistanceClassifier(),
+        'Gaussian Naive Bayes': GaussianNB(),
+        'K Nearest Neighbors': KNeighborsClassifier(n_neighbors=5),
         **{f'SVM with {kernel} kernel': SVC(kernel=kernel) for kernel in ('linear', 'poly', 'rbf', 'sigmoid')}
     }
     for name, estimator in estimators.items():
         print(f'{name}: {train_eval(estimator)}')
 
+
 # -----------------------------------------------
 
 
+@ignore_warnings(category=ConvergenceWarning)
+def train_eval_voting(ensemble, X, y):
+    # Works best with low capacity models
+    form = '{:<30}\t{:<30}\t{:<30}'
+    print(form.format('name', 'mean accuracy', 'std'))
+    sub_estimators = (v[1] for v in ensemble.estimators)
+    for estimator in (*sub_estimators, ensemble):
+        name = type(estimator).__name__
+        scores = cross_val_score(estimator, X, y, cv=5, scoring='accuracy')
+        mean = np.mean(scores)
+        std = np.std(scores)
+        print(form.format(name, mean, std))
+
+
+def train_eval_bagging(estimator, X, y):
+    # Works best with high capacity models
+    bagging = BaggingClassifier(estimator, max_samples=0.6, max_features=0.8)
+    name = type(estimator).__name__
+    scores_vanilla = cross_val_score(estimator, X, y)
+    scores_bagging = cross_val_score(bagging, X, y)
+    form = '{:<30}\t{:<30}\t{:<30}'
+    print(form.format('name', 'mean accuracy', 'std'))
+    print(form.format(name, np.mean(scores_vanilla), np.std(scores_vanilla)))
+    print(form.format('Bagging' + name, np.mean(scores_bagging), np.std(scores_bagging)))
+
+
 def step18():
-    pass
+
+    # -- PART 1 --
+    # Not using SVM because it doesn't estimate probabilities (although sklearn can produce some estimates)
+    # Lowering the capacity of LogisticRegression, CustomNBClassifier and KNeighborsClassifier
+    # so that all models have roughly the same accuracy.
+    voting_soft, voting_hard = (VotingClassifier(estimators=[('lgr', LogisticRegression(multi_class='multinomial',
+                                                                                        C=0.0001)),
+                                                             ('euc', EuclideanDistanceClassifier()),
+                                                             ('gnb', CustomNBClassifier(use_unit_variance=True)),
+                                                             ('knn', KNeighborsClassifier(200))],  # Expensive
+                                                 voting=voting)
+                                for voting in ('soft', 'hard'))
+
+    print('HARD VOTING')
+    train_eval_voting(voting_hard, X_all, y_all)
+    print('\nSOFT VOTING')
+    train_eval_voting(voting_soft, X_all, y_all)
+
+    # -- PART 2 --
+    print('\nBAGGING')
+    train_eval_bagging(KNeighborsClassifier(1), X_all, y_all)
+
+
