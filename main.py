@@ -1,20 +1,28 @@
 # %%
 import pathlib
 import re
-from librosa.feature.spectral import mfcc
+from librosa.feature.spectral import mfcc, poly_features, tonnetz, zero_crossing_rate
+from numpy.lib.npyio import fromregex
+from sklearn import neighbors
+
+from lab1gnb import CustomNBClassifier
 
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import librosa
 
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA 
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline, make_pipeline
+from sklearn.preprocessing import StandardScaler, Normalizer
+from sklearn.decomposition import PCA
+from sklearn.naive_bayes import GaussianNB
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import RandomForestClassifier
 
 SR = 22050
 # %% STEP 2
-
 def data_parser(dir_path, sr=SR):
 
     path = pathlib.Path(dir_path)
@@ -146,8 +154,8 @@ def step_4():
 
 
 # %%  STEP 5
-def stack_data(mfccs, deltas, delta2s):
-    return list(map(np.vstack, zip(mfccs, deltas, delta2s)))
+def stack_data(*args):
+    return list(map(np.vstack, zip(*args)))
 
 
 def compute_means_and_stds(stacked):
@@ -210,7 +218,7 @@ def plot_reduced_3d(reduced_m, evr_m, reduced_s, evr_s):
     fig = plt.figure(figsize=(16, 8))
 
     ax = fig.add_subplot(1, 2, 1, projection='3d')
-    scatter_m = ax.scatter(reduced_m[:, 0], reduced_m[:, 1], reduced_m[:, 2], c=digits)
+    scatter_m = ax.scatter(reduced_m[:, 0], reduced_m[:, 1], reduced_m[:, 2], c=digits, cmap='tab10')
     legend_m = ax.legend(*scatter_m.legend_elements(), loc="best", title="Digits")
     ax.add_artist(legend_m)
     ax.set_xlabel('PCA 1')
@@ -220,7 +228,7 @@ def plot_reduced_3d(reduced_m, evr_m, reduced_s, evr_s):
                 f'{evr_m[0]:.2f}, {evr_m[1]:.2f}, {evr_m[2]:.2f}')
 
     ax = fig.add_subplot(1, 2, 2, projection='3d')
-    scatter_s = ax.scatter(reduced_s[:, 0], reduced_s[:, 1], reduced_s[:, 2], c=digits)
+    scatter_s = ax.scatter(reduced_s[:, 0], reduced_s[:, 1], reduced_s[:, 2], c=digits, cmap='tab10')
     legend_s = ax.legend(*scatter_s.legend_elements(), loc="best", title="Digits")
     ax.add_artist(legend_s)
     ax.set_xlabel('PCA 1')
@@ -244,3 +252,79 @@ def step_6():
 
 
 # %% STEP 7
+def score_classifier(clf, X_train, X_test, y_train, y_test):
+    clf.fit(X_train, y_train)
+    clf_score = clf.score(X_test, y_test)
+    return clf_score
+
+
+def compute_zcr(wave):
+    return librosa.feature.zero_crossing_rate(wave, frame_length=25, hop_length=10)
+
+
+def compute_poly(wave):
+    return librosa.feature.poly_features(wave, sr=SR, hop_length=20, win_length=25, order=3)
+
+
+def compare_augmented(clfs):
+    stacked = stack_data(mfccs, deltas, delta2s)
+    means, stds = compute_means_and_stds(stacked)
+    X = np.hstack([means, stds])
+    X_train, X_test, y_train, y_test = train_test_split(X, np.array(digits), test_size=0.3)
+    scores = {name: score_classifier(clf, X_train, X_test, y_train, y_test) for name, clf in clfs.items()}
+
+    zcrs = [compute_zcr(wave) for wave in waves]
+    zcr_means, zcr_stds = compute_means_and_stds(zcrs)
+    polys = [compute_poly(wave) for wave in waves]
+    poly_means, poly_stds = compute_means_and_stds(polys)
+    X_more = np.hstack([X, zcr_means, zcr_stds, poly_means, poly_stds])
+    X_more_train, X_more_test, y_train, y_test = train_test_split(X_more, np.array(digits), test_size=0.3)
+    scores_more = {name: score_classifier(clf, X_more_train, X_more_test, y_train, y_test) for name, clf in clfs.items()} 
+
+    return scores, scores_more
+
+
+def step_7():
+
+    clfs_raw = {
+        'gnb': GaussianNB(),
+        'cgnb': CustomNBClassifier(),
+        'svm': SVC(kernel='linear'),
+        'knn': KNeighborsClassifier(n_neighbors=5, weights='distance', p=1),
+        'rf': RandomForestClassifier(n_estimators=100)
+    }
+
+    clfs_scaled = {
+        'gnb': make_pipeline(StandardScaler(), GaussianNB()),
+        'cgnb': make_pipeline(StandardScaler(),  CustomNBClassifier()),
+        'svm': make_pipeline(StandardScaler(), SVC(kernel='linear')),
+        'knn': make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=5, weights='distance', p=1)),
+        'rf': make_pipeline(StandardScaler(), RandomForestClassifier(n_estimators=100))
+    }
+
+    clfs_normalized = {
+        'gnb': make_pipeline(Normalizer(), GaussianNB()),
+        'cgnb': make_pipeline(Normalizer(),  CustomNBClassifier()),
+        'svm': make_pipeline(Normalizer(), SVC(kernel='linear')),
+        'knn': make_pipeline(Normalizer(), KNeighborsClassifier(n_neighbors=5, weights='distance', p=1)),
+        'rf': make_pipeline(Normalizer(), RandomForestClassifier(n_estimators=100))
+    }
+
+    s_r, s_r_more = compare_augmented(clfs_raw)
+    s_s,s_s_more = compare_augmented(clfs_scaled)
+    s_n, s_n_more = compare_augmented(clfs_normalized)
+
+    print('No preprocessing')
+    print('Before augmenting:', s_r)
+    print('After augmenting: ', s_r_more)
+    print()
+    print('Scaled')
+    print('Before augmenting:', s_s)
+    print('After augmenting: ', s_s_more)
+    print()
+    print('Normalized')
+    print('Before augmenting:', s_n)
+    print('After augmenting: ', s_n_more)
+    
+
+# %% STEP 8
