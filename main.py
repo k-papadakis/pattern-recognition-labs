@@ -1,4 +1,4 @@
-# %% STEP 2
+# %%
 import pathlib
 import re
 from librosa.feature.spectral import mfcc
@@ -8,8 +8,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import librosa
 
-SR = 22050
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA 
 
+SR = 22050
+# %% STEP 2
 
 def data_parser(dir_path, sr=SR):
 
@@ -147,16 +151,18 @@ def stack_data(mfccs, deltas, delta2s):
 
 
 def compute_means_and_stds(stacked):
-    means = [np.mean(arr, axis=1) for arr in stacked]
-    stds = [np.std(arr, axis=1) for arr in stacked]
+    means = np.vstack([np.mean(arr, axis=1) for arr in stacked])
+    stds = np.vstack([np.std(arr, axis=1) for arr in stacked])
     return means, stds
 
 
-def plot_scatter(x, y, grouper, title=None, ax=None, **kwargs):
+def plot_scatter(x, y, grouper, title=None, ax=None, xlabel=None, ylabel=None, **kwargs):
     if ax is None:
         _, ax = plt.subplots()
     sns.scatterplot(x=x, y=y, hue=grouper, style=grouper, palette='tab10',legend='full', ax=ax, **kwargs)
     ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
 
 
 def step_5():
@@ -166,15 +172,75 @@ def step_5():
 
     fig, axs = plt.subplots(ncols=2, figsize=(16, 8))
 
-    m = np.vstack([mean[:2] for mean in means])
-    s = np.vstack([std[:2] for std in stds])
-    plot_scatter(m[:, 0], m[:, 1], digits, 'Means', ax=axs[0])
-    plot_scatter(s[:, 0], s[:, 1], digits, 'Standard Deviations', ax=axs[1])
-
-
-step_5() 
+    plot_scatter(means[:, 0], means[:, 1], digits, 'Means', ax=axs[0])
+    plot_scatter(stds[:, 0], stds[:, 1], digits, 'Standard Deviations', ax=axs[1])
 
 
 # %% STEP 6
+def reduce_dims(data, n_dims):
+    reductor = Pipeline(steps=[('scaler', StandardScaler()), ('pca', PCA(n_components=n_dims))])
+    reduced = reductor.fit_transform(data)
+    pca = reductor.named_steps['pca']
+    evr = pca.explained_variance_ratio_
+    return reduced, reductor, evr
 
 
+def plot_reduced_2d(reduced_m, evr_m, reduced_s, evr_s):
+
+    fig, axs = plt.subplots(ncols=2, figsize=(16, 8))
+
+    plot_scatter(
+        reduced_m[:,0], reduced_m[:,1],
+        grouper=digits, ax=axs[0],
+        title=f'PCA of Means. Explained variance: {evr_m[0]:.2f}, {evr_m[1]:.2f}',
+        xlabel='PCA 1',
+        ylabel='PCA 2'
+    )
+
+    plot_scatter(
+        reduced_s[:,0], reduced_s[:,1],
+        grouper=digits, ax=axs[1],
+        title=f'PCA of Standard Deviation. Explained variance: {evr_s[0]:.2f}, {evr_s[1]:.2f}',
+        xlabel='PCA 1',
+        ylabel='PCA 2'
+    )
+
+
+def plot_reduced_3d(reduced_m, evr_m, reduced_s, evr_s):
+    fig = plt.figure(figsize=(16, 8))
+
+    ax = fig.add_subplot(1, 2, 1, projection='3d')
+    scatter_m = ax.scatter(reduced_m[:, 0], reduced_m[:, 1], reduced_m[:, 2], c=digits)
+    legend_m = ax.legend(*scatter_m.legend_elements(), loc="best", title="Digits")
+    ax.add_artist(legend_m)
+    ax.set_xlabel('PCA 1')
+    ax.set_ylabel('PCA 2')
+    ax.set_zlabel('PCA 3')
+    ax.set_title('PCA of Standard Deviation. Explained variance:'
+                f'{evr_m[0]:.2f}, {evr_m[1]:.2f}, {evr_m[2]:.2f}')
+
+    ax = fig.add_subplot(1, 2, 2, projection='3d')
+    scatter_s = ax.scatter(reduced_s[:, 0], reduced_s[:, 1], reduced_s[:, 2], c=digits)
+    legend_s = ax.legend(*scatter_s.legend_elements(), loc="best", title="Digits")
+    ax.add_artist(legend_s)
+    ax.set_xlabel('PCA 1')
+    ax.set_ylabel('PCA 2')
+    ax.set_zlabel('PCA 3')
+    ax.set_title('PCA of Standard Deviation. Explained variance:'
+                f'{evr_s[0]:.2f}, {evr_s[1]:.2f}, {evr_s[2]:.2f}')
+
+
+def step_6():
+    stacked = stack_data(mfccs, deltas, delta2s)
+    means, stds = compute_means_and_stds(stacked)
+    
+    reduced_m_2d, reductor_m_2d, evr_m_2d = reduce_dims(means, 2)
+    reduced_s_2d, reductor_s_2d, evr_s_2d = reduce_dims(stds, 2)
+    plot_reduced_2d(reduced_m_2d, evr_m_2d, reduced_s_2d, evr_s_2d)
+
+    reduced_m_3d, reductor_m_3d, evr_m_3d = reduce_dims(means, 3)
+    reduced_s_3d, reductor_s_3d, evr_s_3d = reduce_dims(stds, 3)
+    plot_reduced_3d(reduced_m_3d, evr_m_3d, reduced_s_3d, evr_s_3d)
+
+
+# %% STEP 7
