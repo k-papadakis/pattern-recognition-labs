@@ -1,9 +1,6 @@
 # %%
 import pathlib
 import re
-from librosa.feature.spectral import mfcc, poly_features, tonnetz, zero_crossing_rate
-from numpy.lib.npyio import fromregex
-from sklearn import neighbors
 
 from lab1gnb import CustomNBClassifier
 
@@ -21,7 +18,17 @@ from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torch.utils.data import TensorDataset, DataLoader, random_split
+
+torch.manual_seed(42)
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 SR = 22050
+
+
 # %% STEP 2
 def data_parser(dir_path, sr=SR):
 
@@ -75,7 +82,7 @@ mfccs, deltas, delta2s = step_3(waves)
 
 # %% STEP 4
 def plot_hist_grid(n1, n2, suptitle=None):
-    # In the pdf it say to plot each occurence of each digit,
+    # In the pdf it says to plot each occurence of each digit,
     # but in this answer on github it says we only need to plot 4 histograms:
     # https://github.com/slp-ntua/patrec-labs/issues/109
     # I will follow the github answer and plot 4 histograms.
@@ -328,3 +335,155 @@ def step_7():
     
 
 # %% STEP 8
+def sample_waves(n_samples, f=40, n_points=10):
+    step = f * n_points
+    period = 1 / f
+    start = np.random.uniform(0, period, size=n_samples)
+    start = np.expand_dims(start, 1)
+    t = np.arange(10) / step
+    ts = start + t
+    sines = np.sin(2*np.pi * f * ts)
+    cosines = np.cos(2*np.pi * f * ts)
+    return ts, sines, cosines
+
+
+def plot_random_sample_waves(ts, sines, cosines):
+    fig, axs = plt.subplots(nrows=2, figsize=(5, 10))
+    i, = np.random.randint(1, ts.shape[0], size=1)
+    axs[0].plot(ts[i], sines[i], 'og')
+    axs[0].set_title('Sine')
+    axs[1].plot(ts[i], cosines[i], 'ob')
+    axs[1].set_title('Cosine')
+
+
+def split(x, y, train_size=0.8, batch_size=128):
+    x_tensor = torch.Tensor(x).unsqueeze(-1)
+    y_tensor = torch.Tensor(y).unsqueeze(-1)
+
+    n_samples = len(x_tensor)
+    n_train = int(train_size * n_samples)
+    n_test = n_samples - n_train
+
+    data = TensorDataset(x_tensor, y_tensor)
+    train_data, test_data = random_split(data, [n_train, n_test])
+    
+    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_data, batch_size=batch_size)
+
+    return train_loader, test_loader
+
+class CustomRNN(nn.Module):
+    
+    def __init__(self, input_size, hidden_size, output_size, bidirectional=False, cell='simple'):
+        # cell in ('simple', 'gru', 'lstm')
+        super().__init__()
+        rnn_class = {'simple': nn.RNN, 'gru': nn.GRU, 'lstm': nn.LSTM}[cell]
+        self.rnn = rnn_class(input_size, hidden_size, bidirectional=bidirectional, batch_first=True)
+        self.linear = nn.Linear(hidden_size * (bidirectional + 1), output_size)
+    
+    def forward(self, x):
+        rnn_out, *_ = self.rnn(x)
+        linear_out = self.linear(rnn_out)
+        return linear_out
+
+
+def train_loop(dataloader, model, loss_fn, optimizer, device=DEVICE):
+    model.train()
+    for x, y in dataloader:
+        x, y = x.to(device), y.to(device)
+        
+        # Compute prediction and loss
+        pred = model(x)
+        loss = loss_fn(pred, y)
+
+        # Backpropagation
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+            
+def test_loop(dataloader, model, loss_fn, device=DEVICE):
+    model.eval()
+    n_batches = len(dataloader)
+    test_loss = 0
+
+    with torch.inference_mode():
+        for x, y in dataloader:
+            x, y = x.to(device), y.to(device)
+            pred = model(x)
+            test_loss += loss_fn(pred, y).item()
+
+    test_loss /= n_batches
+    return test_loss
+
+
+def train_eval_8(cell, train_loader, test_loader, bidirectional, epochs=100, lr=1e-2, hidden_size=64):
+    model = CustomRNN(1, hidden_size, 1, cell=cell, bidirectional=bidirectional).to(DEVICE)
+    loss_fn = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[20, 80], gamma=0.1)
+    test_losses = []
+
+    for t in range(epochs):
+        train_loop(train_loader, model, loss_fn, optimizer)
+        test_loss = test_loop(test_loader, model, loss_fn)
+        scheduler.step()
+        test_losses.append(test_loss)
+    
+    return test_losses, model
+
+
+def plot_rnn_losses(losses_dict, suptitle):
+    fig, axs = plt.subplots(nrows=3, figsize=(6, 12))
+    for (cell, losses), ax in zip(losses_dict.items(), axs.flat):
+        ax.plot(losses)
+        ax.set_title(f'{cell} (final loss = {losses[-1]: .5f})')
+    fig.suptitle(suptitle)
+
+
+def step_8():
+
+    ts, sines, cosines = sample_waves(n_samples=1<<10)
+    # plot_random_sample_waves(ts, sines, cosines)
+    train_loader, test_loader = split(sines, cosines, batch_size=128)
+
+    # LSTM and GRU are popular because they can learn long term dependencies easier
+    # The basic problem with a simple RNN is that gradients propagated over many stages
+    # tend to either vanish or explode, with the former being the more common case.
+    # Even if we assume that the parameters are such that the recurrent network is stable,
+    # the difficulty with long-term dependencies arises
+    # from the exponentially smaller weights given to long-term interactions.
+    # Gated RNNS like LSTMs and GRUs are based on the idea of creating paths through
+    # time that have derivatives that neither vanish nor explode.
+    # They do this by adding those leaky connections from the past to now,
+    # with connection weights that may change at each time step.
+    # Goodfellow 10.7, 10.10
+    cells = ('simple', 'gru', 'lstm')
+    losses_dict = {'bidirectional': {}, 'unidirectional': {}}
+    models_dict = {'bidirectional': {}, 'unidirectional': {}}
+
+    for bidirectional in (True, False):
+        for cell in cells:
+            d = 'bidirectional' if bidirectional else 'unidirectional'
+            test_losses, model = train_eval_8(cell, train_loader, test_loader, bidirectional=bidirectional)
+            losses_dict[d][cell] = test_losses
+            models_dict[d][cell] = model
+
+    plot_rnn_losses(losses_dict['unidirectional'], 'Unidirectional')
+    plot_rnn_losses(losses_dict['bidirectional'], 'Bidirectional')
+
+    # The Unidirectional model wasn't able to to learn to predict the first element of the sequence.
+    # This is because, given a sine value there's two possible (opposite) values for cosine.
+    # The Bidirectional model solves that, since the first element is also the last element of the reverse sequence.
+    model = models_dict['unidirectional']['lstm']
+    x, y = next(iter(test_loader))
+    x, y = x.to(DEVICE), y.to(DEVICE)
+    pred = model(x)
+
+    for i in range(3):
+        print(' '.join(f'{t:>5.2f}' for t in y[i, :, 0].tolist()))
+        print(' '.join(f'{t:>5.2f}' for t in pred[i, :, 0].tolist()))
+        print()
+
+# %% STEP 9
+
