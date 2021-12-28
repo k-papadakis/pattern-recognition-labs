@@ -2,8 +2,6 @@
 import pathlib
 import re
 
-from lab1gnb import CustomNBClassifier
-
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -20,9 +18,11 @@ from sklearn.ensemble import RandomForestClassifier
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader, random_split
+
+from lab1gnb import CustomNBClassifier
+
 
 torch.manual_seed(42)
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -54,7 +54,7 @@ def data_parser(dir_path, sr=SR):
     return waves, speakers, digits
 
 
-waves, speakers, digits = data_parser('./data/digits')
+waves, speakers, digits = data_parser('./data/part1/digits')
 
 
 # %% STEP 3
@@ -484,6 +484,3 @@ def step_8():
         print(' '.join(f'{t:>5.2f}' for t in y[i, :, 0].tolist()))
         print(' '.join(f'{t:>5.2f}' for t in pred[i, :, 0].tolist()))
         print()
-
-# %% STEP 9
-
