@@ -1,5 +1,6 @@
-import os
-from glob import glob
+# import os
+# from glob import glob
+from pathlib import Path
 
 import librosa
 import numpy as np
@@ -10,8 +11,13 @@ from tqdm import tqdm
 
 def parse_free_digits(directory):
     # Parse relevant dataset info
-    files = glob(os.path.join(directory, "*.wav"))
-    fnames = [f.split("/")[1].split(".")[0].split("_") for f in files]
+    
+    # files = glob(os.path.join(directory, "*.wav"))
+    # fnames = [f.split("/")[1].split(".")[0].split("_") for f in files]
+    path = Path(directory)
+    files = list(path.glob('**/*wav'))
+    fnames = [p.stem.split('_') for p in files]
+    
     ids = [f[2] for f in fnames]
     y = [int(f[0]) for f in fnames]
     speakers = [f[1] for f in fnames]
