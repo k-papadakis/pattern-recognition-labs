@@ -1,14 +1,16 @@
 # %%
+import os
 from collections import defaultdict
-from sys import implementation
+import pprint
 import joblib
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from sklearn.model_selection import train_test_split
-
-import librosa
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.utils.multiclass import unique_labels
+from sklearn.utils.validation import check_is_fitted
 from hmmlearn import hmm
 
 import torch
@@ -21,36 +23,12 @@ import premades.parser
 torch.manual_seed(42)
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-
-# %% STEP 9
-(X_train_all, X_test,
- y_train_all, y_test,
- spk_train_all, spk_test) = premades.parser.parser('data/part2/recordings', n_mfcc=13)
-
-(X_train, X_val,
- y_train, y_val,
- spk_train, spk_val) = train_test_split(X_train_all, y_train_all, spk_train_all,
-                                        test_size=0.8, stratify=y_train_all)
-
+# %%
+(X_train, X_test,
+ y_train, y_test,
+ spk_train, spk_test) = premades.parser.parser('data/part2/recordings', n_mfcc=13)
  
-# %% STEP 10, STEP 11
-def group_by_label(X, y):
-    grouped = defaultdict(list)
-    for a, b in zip(X, y):
-        grouped[b].append(a)
-    return grouped
-
-
-def reshape(G):
-    G_cat = np.concatenate(G, axis=0)
-    G_lengths = np.array(list(map(len, G)))
-    return G_cat, G_lengths
-
-
-grouped_train = group_by_label(X_train, y_train)
-grouped_val = group_by_label(X_val, y_val)
-grouped_test = group_by_label(X_test, y_test)
-classes = sorted(grouped_train.keys())
+# %% STEP 9, STEP 10, STEP 11, STEP 12, STEP 13
 
 ##################################################################################
 # # The following doesn't work. Pomegranate calculates covariance matrices which
@@ -60,6 +38,25 @@ classes = sorted(grouped_train.keys())
 # from pomegranate.distributions import MultivariateGaussianDistribution
 # from pomegranate.gmm import GeneralMixtureModel
 # from pomegranate.hmm import HiddenMarkovModel
+
+
+# def group_by_label(X, y):
+#     grouped = defaultdict(list)
+#     for a, b in zip(X, y):
+#         grouped[b].append(a)
+#     return grouped
+
+
+# (X_train, X_val,
+#  y_train, y_val,
+#  spk_train, spk_val) = train_test_split(X_train, y_train, spk_train,
+#                                                 test_size=0.8, stratify=y_train) 
+
+# grouped_train = group_by_label(X_train, y_train)
+# grouped_val = group_by_label(X_val, y_val)
+# grouped_test = group_by_label(X_test, y_test)
+# classes = sorted(grouped_train.keys())
+
 
 # def create_and_fit_gmmhmm(group, n_components=4, n_mix=5):
 
@@ -101,9 +98,10 @@ classes = sorted(grouped_train.keys())
 ###################################################################################
 
 
-def create_gmmhmm(n_components=4, n_mix=5,
-                  covariance_type='full', algorithm='viterbi',
-                  tol=1e-2, n_iter=10, verbose=True, implementation='scale'):
+def _create_gmmhmm(n_components=4, n_mix=5,
+                   covariance_type='full', algorithm='viterbi',
+                   tol=1e-2, n_iter=10, verbose=False, **kwargs
+                   ):
 
     # Create a Left-Right uniform transition matrix
     transmat = np.diag(np.ones(n_components))
@@ -133,40 +131,109 @@ def create_gmmhmm(n_components=4, n_mix=5,
                        params='tmcw',
                        algorithm=algorithm,  # Decoder algorithm
                        verbose=verbose,
-                       implementation=implementation)
+                       **kwargs)
     model.startprob_ = startprob
     model.transmat_ = transmat
 
     return model
 
-# %%
-# Create and fit the models
-path = 'hmmgmm-models.joblib'
-models = {}
-for c in classes:
-    print(f'TRAINING CLASS {c}')
-    G_train, lens_train = reshape(grouped_train[c])
-    # Using diagonal covariances, instead of full covariances
-    # so that the models donn't become too complicated
-    model = create_gmmhmm(n_iter=1000, covariance_type='diag')
-    model.fit(G_train, lens_train)
-    models[c] = model
-    print('\n'*2)
-# joblib.dump(models, path)
-# models = joblib.load(path)
+
+class EnsembleGMMHMM(BaseEstimator, ClassifierMixin):
+    
+    def __init__(self, n_components=4, n_mix=5, *,
+                 covariance_type='diag', algorithm='viterbi',
+                 tol=1e-2, n_iter=200, verbose=False,
+                 ):
+        self.n_components = n_components
+        self.n_mix = n_mix
+        self.covariance_type = covariance_type
+        self.algorithm = algorithm
+        self.tol = tol
+        self.n_iter = n_iter
+        self.verbose = verbose
+        
+    def fit(self, X, y):
+        self.classes_ = unique_labels(y)
+        # Group by label
+        grouped_dict = defaultdict(list)
+        for a, b in zip(X, y):
+            grouped_dict[b].append(a)
+        grouped = [grouped_dict[c] for c in self.classes_]
+        
+        self.models_ = []
+        for i, c in enumerate(self.classes_):
+            if self.verbose:
+                print(f'------- TRAINING CLASS {c} -------')    
+            G = np.concatenate(grouped[i])  # hmmlearn requires the data in this form
+            lengths = np.array(list(map(len, grouped[i])))
+            model = _create_gmmhmm(n_components=self.n_components, n_mix=self.n_mix,
+                                   covariance_type=self.covariance_type,
+                                   algorithm=self.algorithm,
+                                   tol=self.tol,
+                                   n_iter=self.n_iter,
+                                   verbose=self.verbose)
+            model.fit(G, lengths)
+            self.models_.append(model)
+            
+    def predict(self, X):
+        check_is_fitted(self)
+        n_samples = len(X)
+        n_classes = len(self.classes_)
+        loglikelihoods = np.empty((n_samples, n_classes))
+        for i in range(n_samples):
+            for j in range(n_classes):
+                loglikelihoods[i, j] = self.models_[j].score(X[i])
+        indices = np.argmax(loglikelihoods, axis=1)
+        preds = self.classes_[indices]
+        return preds
+    
+
+def grid_search(path='gmmhmm-cv.joblib'):
+    
+    if os.path.exists(path):
+        clf = joblib.load(path)
+        return clf
+        
+    # We'll use the indices in GridSearchCV
+    indices_val, indices_train = train_test_split(np.arange(len(y_train)),
+                                                  test_size=0.8,
+                                                  stratify=y_train)             
+    params = {'n_components': np.arange(1, 5),
+              'n_mix': np.arange(1, 6)}
+    cv = [(indices_train, indices_val)]
+    clf = GridSearchCV(EnsembleGMMHMM(), params,
+                       cv=cv,
+                       scoring='accuracy',
+                       n_jobs=-1,
+                       verbose=3)    
+    clf.fit(X_train, y_train)
+    joblib.dump(clf, path)
+    return clf
+    
+    
+clf = grid_search()
 
 
-# %% STEP 12
-def predict(models, X_val):
-    loglikelihoods = np.empty((len(X_val), len(classes)))
-    for i, x in enumerate(X_val):
-        for j, c in enumerate(classes):
-            loglikelihoods[i, j] = models[c].score(x)
-    pred_indices = np.argmax(loglikelihoods, axis=1)
-    preds = classes[pred_indices]
-    return preds    
+def step_9_10_11_12():
+    # We use a validation set plus a test set, because when we choose
+    # the estimator with the best fit, we introduce an overestimating bias
+    # on the score, which might be significant.
+    # To see this, consider the trivial case where we train and validate
+    # the same estimator multiple times and then we pick the best one of them.
+    # It's clear that the expected output of if this process would not be
+    # the expected value of the accuracy, but higher than it.
+    # On the other hand, the processes of evaluating of the score on the test set,
+    # has an expected output equal to the true accuracy.
     
-    
-    
-    
-# %%
+    print('-------GRID-SEARCH RESULTS-------')
+    pprint.pprint(clf.cv_results_)
+    print()
+
+    test_score = clf.best_estimator_.score(X_test, y_test)
+    print(f'BEST PARAMS: {clf.best_params_}')
+    print(f'VALIDATION ACCURACY: {clf.best_score_:6f}')
+    print(f'TEST ACCURACY: {test_score:6f}')
+
+
+# %% STEP 13
+
