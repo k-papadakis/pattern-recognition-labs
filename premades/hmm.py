@@ -10,7 +10,7 @@ gmm = True # whether to use GMM or plain Gaussian
 dists = [] # list of probability distributions for the HMM states
 for i in range(n_states):
     if gmm:
-        a = GeneralMixtureModel.from_samples(MultivariateGaussianDistribution, num_mixtures, X)
+        a = GeneralMixtureModel.from_samples(MultivariateGaussianDistribution, n_mixtures, X)
     else:
         a = MultivariateGaussianDistribution.from_samples(X)
     dists.append(a)
