@@ -103,7 +103,7 @@ classes = sorted(grouped_train.keys())
 
 def create_gmmhmm(n_components=4, n_mix=5,
                   covariance_type='full', algorithm='viterbi',
-                  tol=1e-2, n_iter=10, verbose=True):
+                  tol=1e-2, n_iter=10, verbose=True, implementation='scale'):
 
     # Create a Left-Right uniform transition matrix
     transmat = np.diag(np.ones(n_components))
@@ -113,13 +113,14 @@ def create_gmmhmm(n_components=4, n_mix=5,
     # Start at state 0
     startprob = np.zeros(n_components)
     startprob[0] = 1.
-    # No need for an end_prob because n_components-1 is an (initially unique)
+    # No need for an end_prob because n_components-1 is a unique
     # absorbing state by the values of the initial transition matrix.
-    # The 0s of the transition matrix, stay at 0 (up to some numerical error),
-    # thus n_components-1 is still absorbing after training.
-    # Of course, there is a chance that n_components-1 stops being unique,
-    # but that chance is very slim.
+    # The 0s of the transition matrix, stay at 0,
+    # and the non 0s stay above 0 (up to some numerical error).
+    # Thus, n_components-1 remains a unique absorbing state after training.
     # Also, there is no option for an endprob in hmmlearn.
+    # See also: https://github.com/hmmlearn/hmmlearn/blob/
+    #     03dd25107b940542b72513ca45ef57da22aac298/hmmlearn/tests/test_hmm.py#L214
 
     # Create the model.
     # ‘s’ for startprob, ‘t’ for transmat, ‘m’ for means,
@@ -131,7 +132,8 @@ def create_gmmhmm(n_components=4, n_mix=5,
                        init_params='mcw',
                        params='tmcw',
                        algorithm=algorithm,  # Decoder algorithm
-                       verbose=verbose)
+                       verbose=verbose,
+                       implementation=implementation)
     model.startprob_ = startprob
     model.transmat_ = transmat
 
@@ -140,14 +142,31 @@ def create_gmmhmm(n_components=4, n_mix=5,
 # %%
 # Create and fit the models
 path = 'hmmgmm-models.joblib'
-# models = {}
-# for c in classes:
-#     print(f'TRAINING CLASS {c}')
-#     G_train, lens_train = reshape(grouped_train[c])
-#     model = create_gmmhmm(n_iter=1000)
-#     model.fit(G_train, lens_train)
-#     models[c] = model
-#     print('\n'*2)
+models = {}
+for c in classes:
+    print(f'TRAINING CLASS {c}')
+    G_train, lens_train = reshape(grouped_train[c])
+    # Using diagonal covariances, instead of full covariances
+    # so that the models donn't become too complicated
+    model = create_gmmhmm(n_iter=1000, covariance_type='diag')
+    model.fit(G_train, lens_train)
+    models[c] = model
+    print('\n'*2)
 # joblib.dump(models, path)
-models = joblib.load(path)
+# models = joblib.load(path)
+
+
 # %% STEP 12
+def predict(models, X_val):
+    loglikelihoods = np.empty((len(X_val), len(classes)))
+    for i, x in enumerate(X_val):
+        for j, c in enumerate(classes):
+            loglikelihoods[i, j] = models[c].score(x)
+    pred_indices = np.argmax(loglikelihoods, axis=1)
+    preds = classes[pred_indices]
+    return preds    
+    
+    
+    
+    
+# %%
