@@ -39,9 +39,11 @@ indices_train, indices_val  = train_test_split(np.arange(len(y_train)),
 # %% STEP 10, STEP 11, STEP 12, STEP 13
 
 ##################################################################################
-# The following doesn't work. Pomegranate calculates covariance matrices which
-# are not positive definite for some reason.
+# The following doesn't work. Pomegranate calculates degenerate covariance matrices,
+# then attempts to apply Cholesky decomposition and breaks.
 # I will use hmmlearn instead.
+# In hmmlearn degenerate covariance matrices still occur,
+# but the implementation is able to handle them in most cases.
 
 # from pomegranate.distributions import MultivariateGaussianDistribution
 # from pomegranate.gmm import GeneralMixtureModel
@@ -203,7 +205,8 @@ def grid_search(cv, path='gmmhmm-cv.joblib'):
         return clf
         
     params = {'n_components': np.arange(1, 5),
-              'n_mix': np.arange(1, 6)}
+              'n_mix': np.arange(1, 6),
+              'covariance_type': ['spherical', 'diag', 'full', 'tied']}
     clf = GridSearchCV(EnsembleGMMHMM(), params,
                        cv=cv,
                        scoring='accuracy',
@@ -268,4 +271,5 @@ def step_10_11_12_13():
     plt.show()
 
 
+step_10_11_12_13()
 # %% STEP 14
