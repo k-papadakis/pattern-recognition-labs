@@ -2,6 +2,7 @@
 import os
 from collections import defaultdict
 import pprint
+from unicodedata import bidirectional
 import joblib
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,12 +12,14 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.utils.multiclass import unique_labels
 from sklearn.utils.validation import check_is_fitted
-from sklearn.metrics import ConfusionMatrixDisplay
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
 from hmmlearn import hmm
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence, PackedSequence
+from torch.utils.data import TensorDataset, DataLoader
 
 import premades.parser
 
@@ -24,19 +27,8 @@ RANDOM_STATE = 42
 torch.manual_seed(RANDOM_STATE)
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-# %%
-(X_train, X_test,
- y_train, y_test,
- spk_train, spk_test) = premades.parser.parser('data/part2/recordings', n_mfcc=13)
-
-# %% STEP 9
-# We'll use these indices in GridSearchCV
-indices_train, indices_val  = train_test_split(np.arange(len(y_train)),
-                                               test_size=0.2,
-                                               stratify=y_train,
-                                               random_state=RANDOM_STATE)
  
-# %% STEP 10, STEP 11, STEP 12, STEP 13
+# %% STEP 9, STEP 10, STEP 11, STEP 12, STEP 13
 
 ##################################################################################
 # The following doesn't work. Pomegranate calculates degenerate covariance matrices,
@@ -56,6 +48,10 @@ indices_train, indices_val  = train_test_split(np.arange(len(y_train)),
 #         grouped[b].append(a)
 #     return grouped
 
+
+# (X_train, X_test,
+#  y_train, y_test,
+#  spk_train, spk_test) = premades.parser.parser('data/part2/recordings', n_mfcc=13)
 
 # (X_train, X_val,
 #  y_train, y_val,
@@ -198,7 +194,7 @@ class EnsembleGMMHMM(BaseEstimator, ClassifierMixin):
         return preds
     
 
-def grid_search(cv, path='gmmhmm-cv.joblib'):
+def grid_search(X_train, y_train, cv, path='gmmhmm-cv.joblib'):
     
     if os.path.exists(path):
         clf = joblib.load(path)
@@ -242,7 +238,7 @@ def plot_val_test_confusion_matrices(estimator,
     axs[1].set_title('Confusion Matrix on the Test Set')
    
 
-def step_10_11_12_13():
+def step_9_10_11_12_13():
     # We use a validation set plus a test set, because when we choose
     # the estimator with the best fit, we introduce an overestimating bias
     # on the score, which might be significant.
@@ -253,8 +249,16 @@ def step_10_11_12_13():
     # On the other hand, the processes of evaluating of the score on the test set,
     # has an expected output equal to the true accuracy.
     
+    (X_train, X_test,
+     y_train, y_test,
+     spk_train, spk_test) = premades.parser.parser('data/part2/recordings', n_mfcc=13)
+    
+    indices_train, indices_val = train_test_split(np.arange(len(y_train)),
+                                                  test_size=0.2,
+                                                  stratify=y_train,
+                                                  random_state=RANDOM_STATE)
     cv = [(indices_train, indices_val)]
-    clf = grid_search(cv)
+    clf = grid_search(X_train, y_train, cv)
     test_score = clf.best_estimator_.score(X_test, y_test)
     
     print('-------GRID-SEARCH RESULTS-------')
@@ -271,5 +275,216 @@ def step_10_11_12_13():
     plt.show()
 
 
-step_10_11_12_13()
+# step_9_10_11_12_13()
 # %% STEP 14
+def load_tensor_datasets(directory='data/part2/recordings'):
+    (X_train, X_test,
+     y_train, y_test,
+     spk_train, spk_test) = premades.parser.parser(directory, n_mfcc=13)
+    
+    # Using this instead of torch.utils.data.random_split,
+    # so that the validation set is the same as the GMMHMM part 
+    indices_train, indices_val = train_test_split(np.arange(len(y_train)),
+                                                  test_size=0.2,
+                                                  stratify=y_train,
+                                                  random_state=RANDOM_STATE)
+    
+    lengths_train = torch.LongTensor([len(X_train[idx]) for idx in indices_train])
+    lengths_val = torch.LongTensor([len(X_train[idx]) for idx in indices_val])
+    lengths_test = torch.LongTensor(list(map(len, X_test)))
+
+    X_train_tensor = pad_sequence([torch.Tensor(X_train[idx]) for idx in indices_train],
+                                  batch_first=True)
+    X_val_tensor = pad_sequence([torch.Tensor(X_train[idx]) for idx in indices_val],
+                                  batch_first=True)
+    X_test_tensor = pad_sequence([torch.Tensor(x) for x in X_test],
+                                 batch_first=True)
+    
+    y_train_tensor = torch.LongTensor([y_train[idx] for idx in indices_train])
+    y_val_tensor = torch.LongTensor([y_train[idx] for idx in indices_val])
+    y_test_tensor = torch.LongTensor(y_test)
+    
+    train_dataset = TensorDataset(X_train_tensor, lengths_train, y_train_tensor)
+    val_dataset = TensorDataset(X_val_tensor, lengths_val, y_val_tensor)
+    test_dataset = TensorDataset(X_test_tensor, lengths_test, y_test_tensor)
+    
+    return train_dataset, val_dataset, test_dataset
+
+
+class CustomLSTM(nn.Module):
+    
+    def __init__(self, input_size, hidden_size, output_size,
+                 bidirectional=False, dropout=0.
+                 ):
+        super().__init__()
+        self.lstm = nn.LSTM(input_size, hidden_size,
+                            bidirectional=bidirectional, batch_first=True)
+        self.linear = nn.Linear(hidden_size * (bidirectional + 1), output_size)
+        self.dropout = nn.Dropout(p=dropout)
+        
+    def forward(self, x, lengths):
+        
+        lstm_out, *_ = self.lstm(x)
+        if isinstance(lstm_out, PackedSequence):
+            lstm_out, _ = pad_packed_sequence(lstm_out, batch_first=True)
+        
+        # Get the final outputs of each direction and concatenate them
+        end_indices = (lengths - 1)[..., None, None].to(DEVICE)
+        end1 = torch.take_along_dim(lstm_out[..., :self.lstm.hidden_size],
+                                    end_indices,
+                                    1
+                                    ).squeeze()
+        end2 = torch.take_along_dim(lstm_out[..., self.lstm.hidden_size:],
+                                    end_indices,
+                                    1
+                                    ).squeeze()
+        # If self.lstm.bidirectional, end2 is an empty tensor
+        lstm_out = torch.cat((end1, end2), dim=-1)
+    
+        dropout_out = self.dropout(lstm_out)
+        linear_out = self.linear(dropout_out)
+        return linear_out
+
+
+def train_loop(dataloader, model, loss_fn, optimizer, device=DEVICE):
+    model.train()
+    train_loss = 0.
+    n_batches = len(dataloader)
+    
+    for x, lengths, y in dataloader:
+        x, y = x.to(device), y.to(device)
+        x = pack_padded_sequence(x, lengths, enforce_sorted=False, batch_first=True)
+        
+        # Compute prediction and loss
+        pred = model(x, lengths)
+        loss = loss_fn(pred, y)
+        train_loss += loss.item()
+
+        # Backpropagation
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+    train_loss /= n_batches
+    return train_loss
+
+
+def test_loop(dataloader, model, loss_fn, device=DEVICE):
+    model.eval()
+    n_batches = len(dataloader)
+    test_loss = 0
+    test_accuracy = 0
+
+    with torch.inference_mode():
+        for x, lengths, y in dataloader:
+            x, y = x.to(device), y.to(device)
+            x = pack_padded_sequence(x, lengths, enforce_sorted=False, batch_first=True)
+            probs = model(x, lengths)
+            test_loss += loss_fn(probs, y).item()
+            preds = torch.argmax(probs, 1)
+            test_accuracy += (preds == y).float().mean().item()
+
+    test_loss /= n_batches
+    test_accuracy /= n_batches
+    return test_loss, test_accuracy
+
+
+def predict(dataloader, model, device=DEVICE):
+    res = []
+    with torch.inference_mode():
+        for x, lengths, y in dataloader:
+            x, y = x.to(device), y.to(device)
+            probs = model(x, lengths)
+            preds = torch.argmax(probs, 1)
+            res.append(preds)
+    return torch.cat(res, 0)
+
+
+def step_14():
+    
+    epochs = 200
+    batch_size = 128
+    input_size = 13
+    output_size = 10
+
+    lr = 1e-3
+    hidden_size = 256
+    bidirectional = True
+    dropout = 0.2
+    l2 = 0.01
+
+    train_dataset, val_dataset, test_dataset = load_tensor_datasets()
+    train_loader, val_loader, test_loader = (DataLoader(train_dataset, batch_size=batch_size, shuffle=True),
+                                            DataLoader(val_dataset, batch_size=batch_size),
+                                            DataLoader(test_dataset, batch_size=batch_size))
+
+    model = CustomLSTM(input_size, hidden_size, output_size,
+                    bidirectional=bidirectional).to(DEVICE)
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=l2)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
+    loss_fn = nn.CrossEntropyLoss()
+
+    patience = 5
+    tolerance = 1e-4
+
+    train_losses = []
+    val_losses = []
+    val_accuracies = []
+
+    best_val_loss = float('+infinity')
+    waiting = 0
+
+    for t in range(epochs):
+        # Train and validate
+        print(f'----EPOCH {t}----')
+        train_loss = train_loop(train_loader, model, loss_fn, optimizer)
+        print(f'Train Loss: {train_loss}')
+        val_loss, val_accuracy = test_loop(val_loader, model, loss_fn)
+        print(f'Val Loss: {val_loss}')
+        print(f'Val Accuracy: {val_accuracy}')
+        
+        # Save the best model
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            torch.save(model, 'best-model.pth')
+            print('Saving')
+            
+        # Early Stopping
+        if val_losses and val_losses[-1] - val_loss < tolerance:
+            if waiting == patience:
+                print('Early Stopping')
+                break
+            waiting += 1
+            print(f'{waiting = }')
+        else:
+            waiting = 0
+        
+        scheduler.step()
+        
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+        val_accuracies.append(val_accuracy)
+        print()
+
+
+    # Accuracy
+    best_model = torch.load('best-model.pth')
+    test_accuracy, test_loss = test_loop(test_loader, best_model, loss_fn)
+    print(f'Test accuracy of the best model: {test_accuracy: .6f}\nTest loss of the best model: {test_loss: .6f}')
+
+    # Learning curves
+    fig, ax = plt.subplots(figsize=(9, 9))
+    ax.plot(train_losses, label='Training Loss')
+    ax.plot(val_losses, label='Validation Loss')
+    ax.set_title('Learning Curves of the LSTM')
+    ax.legend()
+
+    # Confusion matrix
+    y_true = np.array([v[2].item() for v in  test_dataset])
+    y_pred = predict(test_loader, best_model).cpu()
+    fig, ax = plt.subplots(figsize=(9, 9))
+    ConfusionMatrixDisplay.from_predictions(y_true, y_pred, ax=ax)
+    ax.set_title('Confusion Matrix of the LSTM')
+
+
+# step_14()
