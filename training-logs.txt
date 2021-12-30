@@ -1,27 +1,27 @@
 Total wavs: 3000. Fs = 8000 Hz
-Extracting mfcc features...: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████| 3000/3000 [00:03<00:00, 796.07it/s]
+Extracting mfcc features...: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████| 3000/3000 [00:03<00:00, 809.12it/s]
 Feature extraction completed with 13 mfccs per frame
 Splitting in train test split using the default dataset split
 Fitting 1 folds for each of 20 candidates, totalling 20 fits
-[CV 1/1] END ...........n_components=1, n_mix=1;, score=0.715 total time=   5.7s
-[CV 1/1] END ...........n_components=1, n_mix=2;, score=0.778 total time=  28.9s
-[CV 1/1] END ...........n_components=2, n_mix=1;, score=0.722 total time=  40.1s
-[CV 1/1] END ...........n_components=3, n_mix=1;, score=0.806 total time=  47.4s
-[CV 1/1] END ...........n_components=1, n_mix=4;, score=0.876 total time=  55.2s
-[CV 1/1] END ...........n_components=1, n_mix=3;, score=0.865 total time=  58.7s
-[CV 1/1] END ...........n_components=1, n_mix=5;, score=0.911 total time= 1.3min
-[CV 1/1] END ...........n_components=4, n_mix=1;, score=0.870 total time= 1.4min
-[CV 1/1] END ...........n_components=2, n_mix=2;, score=0.872 total time= 1.5min
-[CV 1/1] END ...........n_components=3, n_mix=2;, score=0.883 total time= 1.8min
-[CV 1/1] END ...........n_components=2, n_mix=3;, score=0.930 total time= 1.8min
-[CV 1/1] END ...........n_components=2, n_mix=4;, score=0.926 total time= 1.9min
-[CV 1/1] END ...........n_components=2, n_mix=5;, score=0.952 total time= 2.3min
-[CV 1/1] END ...........n_components=4, n_mix=2;, score=0.943 total time= 2.3min
-[CV 1/1] END ...........n_components=3, n_mix=3;, score=0.928 total time= 2.4min
-[CV 1/1] END ...........n_components=3, n_mix=4;, score=0.954 total time= 2.6min
-[CV 1/1] END ...........n_components=4, n_mix=3;, score=0.965 total time= 2.5min
-[CV 1/1] END ...........n_components=3, n_mix=5;, score=0.967 total time= 3.0min
-[CV 1/1] END ...........n_components=4, n_mix=4;, score=0.976 total time= 2.8min
+[CV 1/1] END ...........n_components=1, n_mix=1;, score=0.687 total time=   5.7s
+[CV 1/1] END ...........n_components=1, n_mix=2;, score=0.785 total time=  29.8s
+[CV 1/1] END ...........n_components=2, n_mix=1;, score=0.733 total time=  31.8s
+[CV 1/1] END ...........n_components=3, n_mix=1;, score=0.824 total time=  49.0s
+[CV 1/1] END ...........n_components=1, n_mix=3;, score=0.848 total time=  55.4s
+[CV 1/1] END ...........n_components=1, n_mix=4;, score=0.887 total time= 1.1min
+[CV 1/1] END ...........n_components=1, n_mix=5;, score=0.917 total time= 1.2min
+[CV 1/1] END ...........n_components=4, n_mix=1;, score=0.878 total time= 1.2min
+[CV 1/1] END ...........n_components=2, n_mix=2;, score=0.846 total time= 1.2min
+[CV 1/1] END ...........n_components=2, n_mix=3;, score=0.944 total time= 1.4min
+[CV 1/1] END ...........n_components=3, n_mix=3;, score=0.959 total time= 2.0min
+[CV 1/1] END ...........n_components=4, n_mix=2;, score=0.963 total time= 2.1min
+[CV 1/1] END ...........n_components=3, n_mix=2;, score=0.939 total time= 2.2min
+[CV 1/1] END ...........n_components=2, n_mix=5;, score=0.969 total time= 2.2min
+[CV 1/1] END ...........n_components=2, n_mix=4;, score=0.954 total time= 2.2min
+[CV 1/1] END ...........n_components=3, n_mix=4;, score=0.952 total time= 2.7min
+[CV 1/1] END ...........n_components=3, n_mix=5;, score=0.972 total time= 2.9min
+[CV 1/1] END ...........n_components=4, n_mix=3;, score=0.980 total time= 2.5min
+[CV 1/1] END ...........n_components=4, n_mix=4;, score=0.972 total time= 3.2min
 Degenerate mixture covariance
 Degenerate mixture covariance
 Degenerate mixture covariance
@@ -562,4 +562,4 @@ Degenerate mixture covariance
 Degenerate mixture covariance
 Degenerate mixture covariance
 Degenerate mixture covariance
-[CV 1/1] END ...........n_components=4, n_mix=5;, score=0.980 total time= 3.4min
+[CV 1/1] END ...........n_components=4, n_mix=5;, score=0.981 total time= 3.1min

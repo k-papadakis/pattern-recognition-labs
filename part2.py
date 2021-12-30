@@ -11,6 +11,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.utils.multiclass import unique_labels
 from sklearn.utils.validation import check_is_fitted
+from sklearn.metrics import ConfusionMatrixDisplay
 from hmmlearn import hmm
 
 import torch
@@ -19,21 +20,28 @@ import torch.optim as optim
 
 import premades.parser
 
-
-torch.manual_seed(42)
+RANDOM_STATE = 42
+torch.manual_seed(RANDOM_STATE)
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # %%
 (X_train, X_test,
  y_train, y_test,
  spk_train, spk_test) = premades.parser.parser('data/part2/recordings', n_mfcc=13)
+
+# %% STEP 9
+# We'll use these indices in GridSearchCV
+indices_train, indices_val  = train_test_split(np.arange(len(y_train)),
+                                               test_size=0.2,
+                                               stratify=y_train,
+                                               random_state=RANDOM_STATE)
  
-# %% STEP 9, STEP 10, STEP 11, STEP 12, STEP 13
+# %% STEP 10, STEP 11, STEP 12, STEP 13
 
 ##################################################################################
-# # The following doesn't work. Pomegranate calculates covariance matrices which
-# # are not positive definite for some reason.
-# # I will use hmmlearn instead.
+# The following doesn't work. Pomegranate calculates covariance matrices which
+# are not positive definite for some reason.
+# I will use hmmlearn instead.
 
 # from pomegranate.distributions import MultivariateGaussianDistribution
 # from pomegranate.gmm import GeneralMixtureModel
@@ -188,19 +196,14 @@ class EnsembleGMMHMM(BaseEstimator, ClassifierMixin):
         return preds
     
 
-def grid_search(path='gmmhmm-cv.joblib'):
+def grid_search(cv, path='gmmhmm-cv.joblib'):
     
     if os.path.exists(path):
         clf = joblib.load(path)
         return clf
         
-    # We'll use the indices in GridSearchCV
-    indices_val, indices_train = train_test_split(np.arange(len(y_train)),
-                                                  test_size=0.8,
-                                                  stratify=y_train)             
     params = {'n_components': np.arange(1, 5),
               'n_mix': np.arange(1, 6)}
-    cv = [(indices_train, indices_val)]
     clf = GridSearchCV(EnsembleGMMHMM(), params,
                        cv=cv,
                        scoring='accuracy',
@@ -209,12 +212,34 @@ def grid_search(path='gmmhmm-cv.joblib'):
     clf.fit(X_train, y_train)
     joblib.dump(clf, path)
     return clf
-    
-    
-clf = grid_search()
 
 
-def step_9_10_11_12():
+def plot_val_test_confusion_matrices(estimator,
+                                     X_train, y_train, indices_val,
+                                     X_test, y_test
+                                     ):
+    fig, axs = plt.subplots(ncols=2, figsize=(12, 8))
+
+    ConfusionMatrixDisplay.from_estimator(
+        estimator,
+        [X_train[idx] for idx in indices_val],
+        [y_train[idx] for idx in indices_val],
+        ax=axs[0],
+        colorbar=False
+    )
+    axs[0].set_title('Confusion Matrix on the Validation Set')
+
+    ConfusionMatrixDisplay.from_estimator(
+        estimator,
+        X_test,
+        y_test,
+        ax=axs[1],
+        colorbar=False
+    )
+    axs[1].set_title('Confusion Matrix on the Test Set')
+   
+
+def step_10_11_12_13():
     # We use a validation set plus a test set, because when we choose
     # the estimator with the best fit, we introduce an overestimating bias
     # on the score, which might be significant.
@@ -225,15 +250,22 @@ def step_9_10_11_12():
     # On the other hand, the processes of evaluating of the score on the test set,
     # has an expected output equal to the true accuracy.
     
+    cv = [(indices_train, indices_val)]
+    clf = grid_search(cv)
+    test_score = clf.best_estimator_.score(X_test, y_test)
+    
     print('-------GRID-SEARCH RESULTS-------')
     pprint.pprint(clf.cv_results_)
     print()
 
-    test_score = clf.best_estimator_.score(X_test, y_test)
     print(f'BEST PARAMS: {clf.best_params_}')
     print(f'VALIDATION ACCURACY: {clf.best_score_:6f}')
     print(f'TEST ACCURACY: {test_score:6f}')
+    
+    plot_val_test_confusion_matrices(clf.best_estimator_,
+                                     X_train, y_train, indices_val,
+                                     X_test, y_test)
+    plt.show()
 
 
-# %% STEP 13
-
+# %% STEP 14
