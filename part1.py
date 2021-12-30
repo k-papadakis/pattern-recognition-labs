@@ -134,7 +134,7 @@ def plot_corr(v, ax=None, **kwargs):
 
 def plot_corr_grid(dct: bool, n1=2, n2=7, speaker1=1, speaker2=2):
     i11, i12, i21, i22 = get_speaker_digit_indices(n1, n2, speaker1, speaker2)
-    func = compute_mfsc if dct else compute_mfcc
+    func = compute_mfcc if dct else compute_mfsc
 
     fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(12, 12))
 
@@ -159,7 +159,7 @@ def step_4():
     plot_corr_grid(dct=False)
     plt.show()
 
-
+# step_4()
 # %%  STEP 5
 def stack_data(*args):
     return list(map(np.vstack, zip(*args)))
@@ -190,7 +190,7 @@ def step_5():
     plot_scatter(means[:, 0], means[:, 1], digits, 'Means', ax=axs[0])
     plot_scatter(stds[:, 0], stds[:, 1], digits, 'Standard Deviations', ax=axs[1])
 
-
+# step_5()
 # %% STEP 6
 def reduce_dims(data, n_dims):
     reductor = Pipeline(steps=[('scaler', StandardScaler()), ('pca', PCA(n_components=n_dims))])
@@ -231,7 +231,7 @@ def plot_reduced_3d(reduced_m, evr_m, reduced_s, evr_s):
     ax.set_xlabel('PCA 1')
     ax.set_ylabel('PCA 2')
     ax.set_zlabel('PCA 3')
-    ax.set_title('PCA of Standard Deviation. Explained variance:'
+    ax.set_title('PCA of Means. Explained variance: '
                 f'{evr_m[0]:.2f}, {evr_m[1]:.2f}, {evr_m[2]:.2f}')
 
     ax = fig.add_subplot(1, 2, 2, projection='3d')
@@ -241,7 +241,7 @@ def plot_reduced_3d(reduced_m, evr_m, reduced_s, evr_s):
     ax.set_xlabel('PCA 1')
     ax.set_ylabel('PCA 2')
     ax.set_zlabel('PCA 3')
-    ax.set_title('PCA of Standard Deviation. Explained variance:'
+    ax.set_title('PCA of Standard Deviation. Explained variance: '
                 f'{evr_s[0]:.2f}, {evr_s[1]:.2f}, {evr_s[2]:.2f}')
 
 
@@ -258,6 +258,7 @@ def step_6():
     plot_reduced_3d(reduced_m_3d, evr_m_3d, reduced_s_3d, evr_s_3d)
 
 
+# step_6()
 # %% STEP 7
 def score_classifier(clf, X_train, X_test, y_train, y_test):
     clf.fit(X_train, y_train)
@@ -334,6 +335,7 @@ def step_7():
     print('After augmenting: ', s_n_more)
     
 
+# step_7()
 # %% STEP 8
 def sample_waves(n_samples, f=40, n_points=10):
     step = f * n_points
@@ -484,3 +486,6 @@ def step_8():
         print(' '.join(f'{t:>5.2f}' for t in y[i, :, 0].tolist()))
         print(' '.join(f'{t:>5.2f}' for t in pred[i, :, 0].tolist()))
         print()
+
+
+# step_8()
