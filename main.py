@@ -495,3 +495,5 @@ def step_5_6():
 
 step_5_6()
 plot_learning_curves('losses-fused-beat.pkl')
+
+plt.show()
