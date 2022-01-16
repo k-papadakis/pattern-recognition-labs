@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import librosa
 import librosa.display
+from sklearn.metrics import classification_report
 import torch
 from torch import nn
 from torch import optim
@@ -65,14 +66,14 @@ class SpectrogramDataset(Dataset):
         self.data_dir = os.path.join(path, t)
         self.labels_file = os.path.join(path, f'{t}_labels.txt')
         data_files, labels_str = self.get_file_labels()
-        self.data_files = np.array(data_files)
+        self.data_files = np.array(data_files)  # Storing the filenames instead of the data
         self.labels_str, self.labels = np.unique(labels_str, return_inverse=True)
         
     def get_file_labels(self):
         data_files = []
         labels = []
         with open(self.labels_file) as f:
-            next(f)  # Skip the headers
+            next(f)  # Skip the header
             for line in f:
                 line = line.rstrip()
                 t, label = line.split('\t')
@@ -120,9 +121,9 @@ def plot_spectograms(spec1, spec2, title1=None, title2=None, suptitle=None, cmap
     fig.colorbar(img, ax=axs)
     fig.suptitle(suptitle)
 
-
-# %% Prepare all datasets and loaders
-raw_path = 'data/fma_genre_spectrograms'
+# %%
+# Prepare all datasets and loaders
+raw_path = '/kaggle/input/patreco3-multitask-affective-music/data/fma_genre_spectrograms'
 
 fused_raw_train_full = SpectrogramDataset(raw_path, read_spec_fn=read_fused_spectrogram, train=True, class_mapping=class_mapping)
 fused_raw_train, fused_raw_val = split_dataset(fused_raw_train_full, train_size=0.8)
@@ -136,7 +137,7 @@ chroma_raw_train_full = SpectrogramDataset(raw_path, read_spec_fn=read_chromagra
 chroma_raw_train, chroma_raw_val = split_dataset(chroma_raw_train_full, train_size=0.8)
 chroma_raw_test = SpectrogramDataset(raw_path, read_spec_fn=read_chromagram, train=False, class_mapping=class_mapping)
 
-beat_path = 'data/fma_genre_spectrograms_beat'
+beat_path = '/kaggle/input/patreco3-multitask-affective-music/data/fma_genre_spectrograms_beat'
 
 fused_beat_train_full = SpectrogramDataset(beat_path, read_spec_fn=read_fused_spectrogram, train=True, class_mapping=class_mapping)
 fused_beat_train, fused_beat_val = split_dataset(fused_beat_train_full, train_size=0.8)
@@ -150,22 +151,12 @@ chroma_beat_train_full = SpectrogramDataset(beat_path, read_spec_fn=read_chromag
 chroma_beat_train, chroma_beat_val = split_dataset(chroma_beat_train_full, train_size=0.8)
 chroma_beat_test = SpectrogramDataset(beat_path, read_spec_fn=read_chromagram, train=False, class_mapping=class_mapping)
 
-# Getting the of labels in a python list
 labels = mel_raw_train_full.labels
 labels_str = mel_raw_train_full.labels_str
 
 
-# %% STEP 0, 1, 2, 3
-# In our example we chose Electronic music vs classical music.
-# We see that the Electronic sample is more tightly structured in a disrete manner, while Classical sample is more fluid and continuous,
-# and this holds both for the mel spectogram and the chromogram.
-# Also, from the mel spectograms we see that the Electronic sample has harmonics over the entire frequency range,
-# while the Classical sample does not. Finaly notice the regular vertical lines in the Electronic samples
-# which are a result of a regular rhythm
-#
-# As we see, size of each raw sample is above 150,000 which is almost impossible to use for training on normal machines.
-# On the other hand beat-synced samples have size of roughly 750, which is definitely something we can work with.
 
+# %% STEPS 0, 1, 2, 3
 def step_0_1_2_3():
     label1_str = 'Electronic'
     label2_str = 'Classical'
@@ -184,27 +175,14 @@ def step_0_1_2_3():
         print(f'{spec_type} ({transform}) shape: {spec1.shape}')
         plot_spectograms(spec1.T, spec2.T, label1_str, label2_str, f'{spec_type} ({transform})')
     
+    
+step_0_1_2_3()
+
 
 # %% STEP 4
-# As noted earlier I implemented the Datasets differently.
-# Below I answer the questions asked in the original implementation.
-# 
-# QUESTION: Comment on howv the train and validation splits are created.
-# ANSWER: We read the data in arrays, create an array of the indices,
-#   we shuffle the indices, and then we split them.
-# 
-# QUESTION: It's useful to set the seed when debugging but when experimenting ALWAYS set seed=None. Why?
-# ANSWER: Because we would always be training and validating on the same data,
-#   which could make the model learn properties specific to that split
-#   and which aren't properties of the entire set.
-#
-# QUESTION: Comment on why padding is needed
-# ANSWER: Because PyTorch doesn't support ragged tensors.
-
-# Create a dataset without using the class mapping, solely for computing the labels
-# Note that constructing the dataset is cheap, since our implementation is lazy.
-
-def step4():
+def step_4():
+    # Create a dataset without using the class mapping, solely for computing the labels
+    # Note that constructing the dataset is cheap, since our implementation is lazy.
     ds = SpectrogramDataset(raw_path, read_spec_fn=read_mel_spectrogram, train=True, class_mapping=None)
     labels_str_original = ds.labels_str
     labels_original = ds.labels
@@ -217,8 +195,11 @@ def step4():
     axs[0].set_title('Original Labels')
     axs[1].set_title('Transformed Labels')
 
+    
+step_4()
 
-# %% STEP 5
+
+# %% STEPS 5, 6
 class CustomLSTM(nn.Module):
     
     def __init__(self, input_size, hidden_size, output_size,
@@ -297,30 +278,28 @@ def test_loop(dataloader, model, loss_fn, device=DEVICE):
     return test_loss, test_accuracy
 
 
-# %%
 def train_eval(model, train_dataset, val_dataset, batch_size,epochs,
-               lr=1e-3, l2=1e-2, patience=5, tolerance=1e-4,
+               lr=1e-3, l2=1e-2, patience=5, tolerance=1e-3,
                save_path='best-model.pth', overfit_batch=False,
                ):
     
     
     if overfit_batch:
-        # Create a subset of the dataset of size 3*batch_size and use this instead
+        k = 1  # The new number of batches
+        # Create a subset of the dataset of size k*batch_size and use this instead
         rng = np.random.default_rng(seed=RANDOM_STATE)
-        indices = rng.choice(np.arange(len(train_dataset)), size=3*batch_size, replace=False)
+        indices = rng.choice(np.arange(len(train_dataset)), size=k*batch_size, replace=False)
         train_dataset = Subset(train_dataset, indices)
         # Increase the number of epochs appropriately
         # total = epochs * len(dataset)
         #       = epochs * n_batches * batch_size
-        #       = epochs * n_batches * 3 * (batch_size/3)
+        #       = epochs * n_batches * k * (batch_size/k)
         # Thus, to keep roughly same total we do:
-        epochs *= (batch_size // 3) + 1
+        epochs *= (batch_size // k) + 1
         # But we will use at most 200 epochs
         epochs = min(epochs, 200)
-        print('Overfit Batch mode. The dataset now comprises of only 3 Batches.'
+        print(f'Overfit Batch mode. The dataset now comprises of only {k} Batches. '
               f'Epochs increased to {epochs}.')
-        
-    
     
     train_loader = DataLoader(train_dataset, batch_size=batch_size, collate_fn=collate_fn,
                               pin_memory=True, shuffle=True)
@@ -328,7 +307,7 @@ def train_eval(model, train_dataset, val_dataset, batch_size,epochs,
                             pin_memory=True)
 
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=l2)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=40, gamma=0.5)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
     loss_fn = nn.CrossEntropyLoss()
 
     train_losses = []
@@ -364,7 +343,7 @@ def train_eval(model, train_dataset, val_dataset, batch_size,epochs,
                     print('Early Stopping')
                     break
                 waiting += 1
-                print(f'{waiting = }')
+                print(f'waiting = {waiting}')
             else:
                 waiting = 0
         
@@ -379,67 +358,140 @@ def train_eval(model, train_dataset, val_dataset, batch_size,epochs,
     return train_losses, val_losses, val_accuracies
 
 
-def train_mel_raw():
+# The parameters in the following were chosen so that they work well with overfit_batch=True
+
+def train_mel_raw(overfit_batch=False):
     train_dataset = mel_raw_train
     val_dataset = mel_raw_val
     input_dim = train_dataset[0][0].shape[1]
     output_dim = len(labels_str)
-    model = CustomLSTM(input_dim, 64, output_dim, bidirectional=True, dropout=0.2).to(DEVICE)
+    model = CustomLSTM(input_dim, 512, output_dim, bidirectional=True, dropout=0.2).to(DEVICE)
 
     losses = train_eval(model, train_dataset, val_dataset,
-                    batch_size=64, epochs=2, lr=1e-4,
-                    overfit_batch=False, save_path='best-mel-raw.pth')
-    with open('losses-mel-raw.pkl', 'wb') as f:
-        pickle.dump(losses, f)
+                    batch_size=128, epochs=50, lr=1e-3,
+                    overfit_batch=overfit_batch, save_path='best-mel-raw.pth')
+    if not overfit_batch:
+        with open('losses-mel-raw.pkl', 'wb') as f:
+            pickle.dump(losses, f)
 
 
-def train_mel_beat():
+def train_mel_beat(overfit_batch=False):
     train_dataset = mel_beat_train
     val_dataset = mel_beat_val
     input_dim = train_dataset[0][0].shape[1]
     output_dim = len(labels_str)
-    model = CustomLSTM(input_dim, 64, output_dim, bidirectional=True, dropout=0.2).to(DEVICE)
+    model = CustomLSTM(input_dim, 256, output_dim, bidirectional=True, dropout=0.1).to(DEVICE)
 
     losses = train_eval(model, train_dataset, val_dataset,
-                    batch_size=64, epochs=2, lr=1e-4,
-                    overfit_batch=False, save_path='best-mel-beat.pth')
-    with open('losses-mel-beat.pkl', 'wb') as f:
-        pickle.dump(losses, f)
+                    batch_size=512, epochs=200, lr=1e-3,
+                    overfit_batch=overfit_batch, save_path='best-mel-beat.pth')
+    if not overfit_batch:
+        with open('losses-mel-beat.pkl', 'wb') as f:
+            pickle.dump(losses, f)
     
 
-def train_chroma_beat():
-    train_dataset = chroma_beat_train
-    val_dataset = chroma_beat_val
+def train_chroma_raw(overfit_batch=False):
+    train_dataset = chroma_raw_train
+    val_dataset = chroma_raw_val
     input_dim = train_dataset[0][0].shape[1]
     output_dim = len(labels_str)
-    model = CustomLSTM(input_dim, 64, output_dim, bidirectional=True, dropout=0.2).to(DEVICE)
+    model = CustomLSTM(input_dim, 128, output_dim, bidirectional=True, dropout=0.1).to(DEVICE)
 
     losses = train_eval(model, train_dataset, val_dataset,
-                    batch_size=64, epochs=2, lr=1e-4,
-                    overfit_batch=False, save_path='best-chroma-beat.pth')
-    with open('losses-chroma-beat.pkl', 'wb') as f:
-        pickle.dump(losses, f)
+                    batch_size=256, epochs=50, lr=1e-3,
+                    overfit_batch=overfit_batch, save_path='best-chroma-raw.pth')
+    if not overfit_batch:
+        with open('losses-chroma-raw.pkl', 'wb') as f:
+            pickle.dump(losses, f)
 
 
-def train_fused_beat():
+def train_fused_raw(overfit_batch=False):
+    train_dataset = fused_raw_train
+    val_dataset = fused_raw_val
+    input_dim = train_dataset[0][0].shape[1]
+    output_dim = len(labels_str)
+    model = CustomLSTM(input_dim, 512, output_dim, bidirectional=True, dropout=0.2).to(DEVICE)
+
+    losses = train_eval(model, train_dataset, val_dataset,
+                    batch_size=128, epochs=50, lr=1e-3,
+                    overfit_batch=overfit_batch, save_path='best-fused-raw.pth')
+    if not overfit_batch:
+        with open('losses-fused-raw.pkl', 'wb') as f:
+            pickle.dump(losses, f)
+
+            
+def train_fused_beat(overfit_batch=False):
     train_dataset = fused_beat_train
     val_dataset = fused_beat_val
     input_dim = train_dataset[0][0].shape[1]
     output_dim = len(labels_str)
-    model = CustomLSTM(input_dim, 64, output_dim, bidirectional=True, dropout=0.2).to(DEVICE)
+    model = CustomLSTM(input_dim, 256, output_dim, bidirectional=True, dropout=0.1).to(DEVICE)
 
     losses = train_eval(model, train_dataset, val_dataset,
-                    batch_size=64, epochs=2, lr=1e-4,
-                    overfit_batch=False, save_path='best-fused-beat.pth')
-    with open('losses-fused-beat.pkl', 'wb') as f:
-        pickle.dump(losses, f)
-        
+                    batch_size=512, epochs=200, lr=1e-3,
+                    overfit_batch=overfit_batch, save_path='best-fused-beat.pth')
+    if not overfit_batch:
+        with open('losses-fused-beat.pkl', 'wb') as f:
+            pickle.dump(losses, f)
 
-# %%
-train_mel_raw()
-# %%
-train_mel_beat()
-# %%
-train_chroma_beat()
-# %%
-train_fused_beat()
+def predict(test_dataset, model, batch_size=128, device=DEVICE):
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=collate_fn,
+                             pin_memory=True)
+    res = []
+    with torch.inference_mode():
+        for x, y, lengths in test_loader:
+            x, y = x.to(device), y.to(device)
+            probs = model(x, lengths)
+            preds = torch.argmax(probs, 1)
+            res.append(preds)
+    return torch.cat(res, 0).cpu()
+
+
+def report(model, test_dataset):
+    y_true = test_dataset.labels
+    y_pred = predict(test_dataset, model)
+    print(classification_report(y_true, y_pred, zero_division=0))
+    
+
+def plot_learning_curves(path):
+    with open(path, 'rb') as f:
+        train_losses, val_losses, _ = pickle.load(f)
+    fig, ax = plt.subplots(figsize=(9, 9))
+    ax.plot(train_losses, label='Training Loss')
+    ax.plot(val_losses, label='Validation Loss')
+    name = path.split('.', 1)[0]
+    ax.set_title(f'Learning Curves for {name}')
+    ax.legend()
+
+
+def step_5_6():
+    train_mel_raw(overfit_batch=False)
+    train_mel_beat(overfit_batch=False)
+    train_chroma_raw(overfit_batch=False)
+    train_fused_raw(overfit_batch=False)
+    train_fused_beat(overfit_batch=False)
+    
+    model_mel_raw = torch.load('best-mel-raw.pth')
+    model_mel_beat = torch.load('best-mel-beat.pth')
+    model_chroma_raw = torch.load('best-chroma-raw.pth')
+    model_fused_raw = torch.load('best-fused-raw.pth')
+    model_fused_beat = torch.load('best-fused-beat.pth')
+    
+    print('Mel raw')
+    report(model_mel_raw, mel_raw_test)
+    print('\n\n')
+    print('Mel beat-sync')
+    report(model_mel_beat, mel_beat_test)
+    print('\n\n')
+    print('Chroma raw')
+    report(model_chroma_raw, chroma_raw_test)
+    print('\n\n')
+    print('Fused raw')
+    report(model_fused_raw, fused_raw_test)
+    print('\n\n')
+    print('Fused beat')
+    report(model_fused_beat, fused_beat_test)
+
+
+step_5_6()
+plot_learning_curves('losses-fused-beat.pkl')
