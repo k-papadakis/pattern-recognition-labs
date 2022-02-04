@@ -107,9 +107,18 @@ def split_dataset(dataset, train_size, seed=RANDOM_STATE):
     return dataset_train, dataset_val
 
 
-def collate_fn(batch):
+def collate_fn_rnn(batch):
     seqs, labels, lengths = map(list, zip(*batch))
     return pad_sequence(seqs, batch_first=True), torch.LongTensor(labels), torch.LongTensor(lengths)
+
+
+MAX_LEN = 1293
+def collate_fn_cnn(batch):
+    seqs, labels, _ = map(list, zip(*batch))
+    seqs = [x[:MAX_LEN] for x in seqs]
+    X = pad_sequence(seqs, batch_first=True)
+    right_pad = torch.zeros(X.shape[0], MAX_LEN - X.shape[1], X.shape[2])
+    return torch.cat([X, right_pad], 1), labels
 
 
 def plot_spectograms(spec1, spec2, title1=None, title2=None, suptitle=None, cmap='viridis'):
@@ -301,9 +310,9 @@ def train_eval(model, train_dataset, val_dataset, batch_size,epochs,
         print(f'Overfit Batch mode. The dataset now comprises of only {k} Batches. '
               f'Epochs increased to {epochs}.')
     
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, collate_fn=collate_fn,
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, collate_fn=collate_fn_rnn,
                               pin_memory=True, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, collate_fn=collate_fn,
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, collate_fn=collate_fn_rnn,
                             pin_memory=True)
 
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=l2)
@@ -435,7 +444,7 @@ def train_fused_beat(overfit_batch=False):
             pickle.dump(losses, f)
 
 def predict(test_dataset, model, batch_size=128, device=DEVICE):
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=collate_fn,
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=collate_fn_rnn,
                              pin_memory=True)
     res = []
     with torch.inference_mode():
