@@ -18,6 +18,7 @@ from torch.utils.data import Dataset, Subset, DataLoader, random_split
 RANDOM_STATE = 42
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+
 # %%
 class_mapping = {
     'Rock': 'Rock',
@@ -41,7 +42,6 @@ class_mapping = {
     'International': None,
     'Old-Time': None
 }
-
 
 def read_fused_spectrogram(spectrogram_file):
     spectrogram = np.load(spectrogram_file)
@@ -121,7 +121,7 @@ def collate_fn_cnn_maker(max_len):
         right_pad = torch.zeros(X.shape[0], max_len - X.shape[1], X.shape[2])
         X = torch.cat([X, right_pad], 1)
         X = torch.unsqueeze(X, 1)  # Channel dimension
-        return X, labels
+        return X, torch.LongTensor(labels)
     return collate_fn_cnn
 
 
@@ -167,8 +167,6 @@ chroma_beat_test = SpectrogramDataset(beat_path, read_spec_fn=read_chromagram, t
 labels = mel_raw_train_full.labels
 labels_str = mel_raw_train_full.labels_str
 
-MAX_LEN_RAW = 1293  # max(length for _, _, length in chroma_raw_train_full)
-MAX_LEN_BEAT = 129  # max(length for _, _, length in chroma_beat_train_full)
 
 # %% STEPS 0, 1, 2, 3
 def step_0_1_2_3():
@@ -292,10 +290,10 @@ def test_loop_rnn(dataloader, model, loss_fn, device=DEVICE):
     return test_loss, test_accuracy
 
 
-def train_eval_rnn(model, train_dataset, val_dataset, batch_size,epochs,
-               lr=1e-3, l2=1e-2, patience=5, tolerance=1e-3,
-               save_path='best-model.pth', overfit_batch=False,
-               ):
+def train_eval_rnn(model, train_dataset, val_dataset, batch_size, epochs,
+                   lr=1e-3, l2=1e-2, patience=5, tolerance=1e-3,
+                   save_path='best-model-rnn.pth', overfit_batch=False
+                   ):
     
     
     if overfit_batch:
@@ -519,6 +517,10 @@ def step_5_6():
 ##############################################################################
 ##############################################################################
 
+N_MEL = 128
+N_CHROMA = 12
+MAX_LEN_RAW = 1293  # max(length for _, _, length in chroma_raw_train_full)
+MAX_LEN_BEAT = 129  # max(length for _, _, length in chroma_beat_train_full)
 
 # %% STEP 7
 
@@ -542,10 +544,10 @@ def new_dims(h, w, padding, dilation, kernel_size, stride):
     )
     
     
-class ConvBlock(nn.Module):
+class ConvNet(nn.Module):
     
-    def __init__(self, input_shape, out_channels, kernel_size, final_size,
-                 stride=1, padding=0, pool_size=3, **kwargs):
+    def __init__(self, input_shape, out_channels, final_size,
+                 kernel_size=1, stride=1, padding=0, pool_size=3, **kwargs):
         super().__init__()
         
         c, h, w = input_shape
@@ -571,12 +573,6 @@ class ConvBlock(nn.Module):
         return x
 
 
-convblock = ConvBlock((1, 12, MAX_LEN_BEAT), 16, 3, len(labels_str))
-loader = DataLoader(chroma_beat_test, 8, collate_fn=collate_fn_cnn_maker(MAX_LEN_BEAT), pin_memory=True, shuffle=False)
-x, y = next(iter(loader))
-
-res = convblock(x)
-# %% 
 def train_loop_cnn(dataloader, model, loss_fn, optimizer, device=DEVICE):
     model.train()
     train_loss = 0.
@@ -597,3 +593,127 @@ def train_loop_cnn(dataloader, model, loss_fn, optimizer, device=DEVICE):
         
     train_loss /= n_batches
     return train_loss
+
+
+def test_loop_cnn(dataloader, model, loss_fn, device=DEVICE):
+    model.eval()
+    n_batches = len(dataloader)
+    test_loss = 0
+    test_accuracy = 0
+
+    with torch.inference_mode():
+        for x, y in dataloader:
+            x, y = x.to(device), y.to(device)
+            probs = model(x)
+            test_loss += loss_fn(probs, y).item()
+            preds = torch.argmax(probs, 1)
+            test_accuracy += (preds == y).float().mean().item()
+
+    test_loss /= n_batches
+    test_accuracy /= n_batches
+    return test_loss, test_accuracy
+
+
+def train_eval_cnn(model, train_dataset, val_dataset, max_len, batch_size, epochs,
+                   lr=1e-3, l2=1e-2, patience=5, tolerance=1e-3,
+                   save_path='best-model-cnn.pth', overfit_batch=False
+                   ):
+    
+    
+    if overfit_batch:
+        k = 1  # The new number of batches
+        # Create a subset of the dataset of size k*batch_size and use this instead
+        rng = np.random.default_rng(seed=RANDOM_STATE)
+        indices = rng.choice(np.arange(len(train_dataset)), size=k*batch_size, replace=False)
+        train_dataset = Subset(train_dataset, indices)
+        # Increase the number of epochs appropriately
+        # total = epochs * len(dataset)
+        #       = epochs * n_batches * batch_size
+        #       = epochs * n_batches * k * (batch_size/k)
+        # Thus, to keep roughly same total we do:
+        epochs *= (batch_size // k) + 1
+        # But we will use at most 200 epochs
+        epochs = min(epochs, 200)
+        print(f'Overfit Batch mode. The dataset now comprises of only {k} Batches. '
+              f'Epochs increased to {epochs}.')
+    
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, collate_fn=collate_fn_cnn_maker(max_len),
+                              pin_memory=True, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, collate_fn=collate_fn_cnn_maker(max_len),
+                            pin_memory=True)
+
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=l2)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
+    loss_fn = nn.CrossEntropyLoss()
+
+    train_losses = []
+    val_losses = []
+    val_accuracies = []
+
+    best_val_loss = float('+infinity')
+    waiting = 0
+
+    for t in range(epochs):
+        # Train and validate
+        print(f'----EPOCH {t}----')
+        train_loss = train_loop_cnn(train_loader, model, loss_fn, optimizer)
+        print(f'Train Loss: {train_loss}')
+        
+        # Validating is not usefull in overfit_batch mode.
+        # We also won't use the scheduler in over_fit batch mode
+        # because the epoch numbers become too large.
+        if not overfit_batch:
+            val_loss, val_accuracy = test_loop_cnn(val_loader, model, loss_fn)
+            print(f'Val Loss: {val_loss}')
+            print(f'Val Accuracy: {val_accuracy}')
+            
+            # Save the best model
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                torch.save(model, save_path)
+                print('Saving')
+                
+            # Early Stopping
+            if val_losses and val_losses[-1] - val_loss < tolerance:
+                if waiting == patience:
+                    print('Early Stopping')
+                    break
+                waiting += 1
+                print(f'waiting = {waiting}')
+            else:
+                waiting = 0
+        
+            scheduler.step()
+        
+        train_losses.append(train_loss)
+        if not overfit_batch:
+            val_losses.append(val_loss)
+            val_accuracies.append(val_accuracy)
+        print()
+        
+    return train_losses, val_losses, val_accuracies
+
+
+def predict_cnn(test_dataset, max_len, model, batch_size=32, device=DEVICE):
+    
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=collate_fn_cnn_maker(max_len),
+                             pin_memory=True)
+    res = []
+    with torch.inference_mode():
+        for x, y in test_loader:
+            x, y = x.to(device), y.to(device)
+            probs = model(x)
+            preds = torch.argmax(probs, 1)
+            res.append(preds)
+    return torch.cat(res, 0).cpu()
+
+# %%
+h, w = MAX_LEN_RAW, N_MEL
+model = ConvNet(input_shape=(1, h, w), out_channels=2, final_size=len(labels_str)).to(DEVICE)
+
+res = train_eval_cnn(model, train_dataset=mel_raw_train, val_dataset=mel_raw_test, max_len=h, batch_size=32, epochs=30, lr=1e-4, l2=0,
+                     overfit_batch=False)
+
+model = torch.load('best-model-cnn.pth')
+preds = predict_cnn(mel_raw_test, h, model)
+
