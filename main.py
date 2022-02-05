@@ -3,6 +3,7 @@ import os
 import pickle
 
 import numpy as np
+from scipy.stats import spearmanr
 import matplotlib.pyplot as plt
 import seaborn as sns
 import librosa
@@ -119,21 +120,15 @@ def split_dataset(dataset, train_size, test_size=0., seed=RANDOM_STATE):
     return dataset_train, dataset_val, dataset_test
 
 
-def collate_fn_rnn(batch):
-    seqs, labels, lengths = map(list, zip(*batch))
-    return pad_sequence(seqs, batch_first=True), torch.vstack(labels).squeeze(), torch.LongTensor(lengths)
-
-
-def collate_fn_cnn_maker(max_len):
-    def collate_fn_cnn(batch):
-        seqs, labels, _ = map(list, zip(*batch))
-        seqs = [x[:max_len] for x in seqs]
+def collate_fn_rnn_maker(label_ids=None):
+    def collate_fn_rnn(batch):
+        seqs, labels, lengths = map(list, zip(*batch))
         X = pad_sequence(seqs, batch_first=True)
-        right_pad = torch.zeros(X.shape[0], max_len - X.shape[1], X.shape[2])
-        X = torch.cat([X, right_pad], 1)
-        X = torch.unsqueeze(X, 1)  # Channel dimension
-        return X, torch.vstack(labels).squeeze()
-    return collate_fn_cnn
+        labels = torch.vstack(labels)
+        if label_ids is not None:
+            labels = labels[:, label_ids]
+        return X, labels.squeeze(), torch.LongTensor(lengths)
+    return collate_fn_rnn
 
 
 def plot_spectograms(spec1, spec2, title1=None, title2=None, suptitle=None, cmap='viridis'):
@@ -278,7 +273,7 @@ class CustomLSTM(nn.Module):
 
         dropout_out = self.dropout(lstm_out)
         linear_out = self.linear(dropout_out)
-        return linear_out
+        return linear_out.squeeze()
 
 
 def train_loop(dataloader, model, loss_fn, optimizer, device=DEVICE):
@@ -366,7 +361,7 @@ def train_eval(model, train_dataset, val_dataset, collate_fn, batch_size, epochs
         loss_fn = nn.MSELoss()
     else:
         raise ValueError(
-            'Invalid loss_fn_str. Value values are {"crossentropy", "mse"}')
+            'Invalid loss_fn_str. Valid values are "crossentropy", "mse"')
 
     train_losses = []
     val_losses = []
@@ -425,7 +420,7 @@ def train_mel_raw_rnn(overfit_batch=False):
     model_path = 'best-mel-raw-rnn.pth'
     losses_path = 'losses-mel-raw-rnn.pkl'
 
-    losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn,
+    losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn_maker(),
                         batch_size=128, epochs=50, lr=1e-3,
                         overfit_batch=overfit_batch, save_path=model_path)
     if not overfit_batch:
@@ -445,7 +440,7 @@ def train_mel_beat_rnn(overfit_batch=False):
     model_path = 'best-mel-beat-rnn.pth'
     losses_path = 'losses-mel-beat-rnn.pkl'
 
-    losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn,
+    losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn_maker(),
                         batch_size=512, epochs=200, lr=1e-3,
                         overfit_batch=overfit_batch, save_path=model_path)
     if not overfit_batch:
@@ -463,7 +458,7 @@ def train_chroma_raw_rnn(overfit_batch=False):
     model_path = 'best-chroma-raw-rnn.pth'
     losses_path = 'losses-chroma-raw-rnn.pkl'
 
-    losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn,
+    losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn_maker(),
                         batch_size=256, epochs=50, lr=1e-3,
                         overfit_batch=overfit_batch, save_path=model_path)
     if not overfit_batch:
@@ -483,7 +478,7 @@ def train_fused_raw_rnn(overfit_batch=False):
     model_path = 'best-fused-raw-rnn.pth'
     losses_path = 'losses-fused-raw-rnn.pkl'
 
-    losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn,
+    losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn_maker(),
                         batch_size=128, epochs=50, lr=1e-3,
                         overfit_batch=overfit_batch, save_path=model_path)
     if not overfit_batch:
@@ -503,7 +498,7 @@ def train_fused_beat_rnn(overfit_batch=False):
     model_path = 'best-fused-beat-rnn.pth'
     losses_path = 'losses-fused-beat-rnn.pkl'
 
-    losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn,
+    losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn_maker(),
                         batch_size=512, epochs=200, lr=1e-3,
                         overfit_batch=overfit_batch, save_path=model_path)
     if not overfit_batch:
@@ -515,7 +510,7 @@ def train_fused_beat_rnn(overfit_batch=False):
 
 # TODO: Chroma beat?
 
-def classify(model, test_dataset, collate_fn, batch_size=32, device=DEVICE):
+def predict(model, test_dataset, collate_fn, task='classification', batch_size=32, device=DEVICE):
     test_loader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=collate_fn,
                              pin_memory=True)
     res = []
@@ -529,14 +524,22 @@ def classify(model, test_dataset, collate_fn, batch_size=32, device=DEVICE):
                 out = model(x, lengths)
             else:
                 out = model(x)
-            preds = torch.argmax(out, 1)
-            res.append(preds)
-    return torch.cat(res, 0).cpu()
+                
+            if task == 'classification':
+                out = torch.argmax(out, 1)
+            elif task == 'regression':
+                pass
+            else:
+                raise ValueError('Invalid value for task. Valid values are "classification", "regression".')
+            
+            res.append(out)
+            
+    return torch.cat(res, 0).squeeze().cpu()
 
 
 def report_clf(model, test_dataset, collate_fn):
     y_true = test_dataset.labels
-    y_pred = classify(model, test_dataset, collate_fn)
+    y_pred = predict(model, test_dataset, collate_fn)
     print(classification_report(y_true, y_pred, zero_division=0))
 
 
@@ -560,19 +563,19 @@ def step_5_6():
     model_fused_beat = train_fused_beat_rnn(overfit_batch=False)
 
     print('Mel raw')
-    report_clf(model_mel_raw, mel_raw_test, collate_fn_rnn)
+    report_clf(model_mel_raw, mel_raw_test, collate_fn_rnn_maker())
     print('\n\n')
     print('Mel beat-sync')
-    report_clf(model_mel_beat, mel_beat_test, collate_fn_rnn)
+    report_clf(model_mel_beat, mel_beat_test, collate_fn_rnn_maker())
     print('\n\n')
     print('Chroma raw')
-    report_clf(model_chroma_raw, chroma_raw_test, collate_fn_rnn)
+    report_clf(model_chroma_raw, chroma_raw_test, collate_fn_rnn_maker())
     print('\n\n')
     print('Fused raw')
-    report_clf(model_fused_raw, fused_raw_test, collate_fn_rnn)
+    report_clf(model_fused_raw, fused_raw_test, collate_fn_rnn_maker())
     print('\n\n')
     print('Fused beat')
-    report_clf(model_fused_beat, fused_beat_test, collate_fn_rnn)
+    report_clf(model_fused_beat, fused_beat_test, collate_fn_rnn_maker())
 
 
 # step_5_6()
@@ -587,12 +590,12 @@ def step_5_6():
 ##############################################################################
 ##############################################################################
 
+# %% STEP 7
+
 N_MEL = 128
 N_CHROMA = 12
 MAX_LEN_RAW = 1293  # max(length for _, _, length in chroma_raw_train_full)
 MAX_LEN_BEAT = 129  # max(length for _, _, length in chroma_beat_train_full)
-
-# %% STEP 7
 
 
 def new_dims(h, w, padding, dilation, kernel_size, stride):
@@ -618,10 +621,25 @@ def new_dims(h, w, padding, dilation, kernel_size, stride):
     )
 
 
+def collate_fn_cnn_maker(max_len, label_ids=None):
+    def collate_fn_cnn(batch):
+        seqs, labels, _ = map(list, zip(*batch))
+        seqs = [x[:max_len] for x in seqs]
+        X = pad_sequence(seqs, batch_first=True)
+        right_pad = torch.zeros(X.shape[0], max_len - X.shape[1], X.shape[2])
+        X = torch.cat([X, right_pad], 1)
+        X = torch.unsqueeze(X, 1)  # Channel dimension
+        labels = torch.vstack(labels)
+        if label_ids is not None:
+            labels = labels[:, label_ids]
+        return X, labels.squeeze()
+    return collate_fn_cnn
+
+
 class ConvNet(nn.Module):
 
-    def __init__(self, input_shape, out_channels, final_size,
-                 kernel_size=1, stride=1, padding=0, pool_size=3, **kwargs):
+    def __init__(self, input_shape, out_channels, output_size,
+                 kernel_size=3, stride=1, padding=0, pool_size=3, **kwargs):
         super().__init__()
 
         c, h, w = input_shape
@@ -637,7 +655,7 @@ class ConvNet(nn.Module):
                         self.conv.kernel_size, self.conv.stride)
         h, w = new_dims(h, w, self.pool.padding, self.pool.dilation,
                         self.pool.kernel_size, self.pool.stride)
-        self.fc = nn.Linear(h * w * out_channels, final_size)
+        self.fc = nn.Linear(h * w * out_channels, output_size)
 
     def forward(self, x):
         x = self.conv(x)
@@ -646,27 +664,7 @@ class ConvNet(nn.Module):
         x = self.pool(x)
         x = self.flatten(x)
         x = self.fc(x)
-        return x
-
-
-def predict_cnn(test_dataset, max_len, model, batch_size=32, device=DEVICE):
-
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=collate_fn_cnn_maker(max_len),
-                             pin_memory=True)
-    res = []
-    with torch.inference_mode():
-        for x, y in test_loader:
-            x, y = x.to(device), y.to(device)
-            probs = model(x)
-            preds = torch.argmax(probs, 1)
-            res.append(preds)
-    return torch.cat(res, 0).cpu()
-
-
-# model = ConvNet(input_shape=(1, h, w), out_channels=2, final_size=len(labels_str)).to(DEVICE)
-
-# res = train_eval(model, mel_raw_train, mel_raw_test, collate_fn_cnn_maker(h), batch_size=32, epochs=30, lr=1e-4, l2=0,
-#                  save_path='best-mel-raw-cnn.pth',overfit_batch=False)
+        return x.squeeze()
 
 
 def train_mel_raw_cnn(overfit_batch=False):
@@ -674,7 +672,7 @@ def train_mel_raw_cnn(overfit_batch=False):
     train_dataset = mel_raw_train
     val_dataset = mel_raw_val
     model = ConvNet(input_shape=(1, h, w), out_channels=2,
-                    final_size=len(labels_str)).to(DEVICE)
+                    output_size=len(labels_str)).to(DEVICE)
     model_path = 'best-mel-raw-cnn.pth'
     losses_path = 'losses-mel-raw-cnn.pkl'
 
@@ -722,10 +720,46 @@ class MultitaskDataset(Dataset):
 
 # multi_path = '/kaggle/input/patreco3-multitask-affective-music/data/multitask_dataset'
 multi_path = os.path.join('data', 'multitask_dataset')
-mel_multi_train_full = MultitaskDataset(
-    multi_path, read_spec_fn=read_mel_spectrogram)
-mel_multi_train, mel_multi_val, mel_multi_test = split_dataset(mel_multi_train_full,
-                                                               train_size=0.7, test_size=0.1)
+multi_train_full = MultitaskDataset(multi_path, read_spec_fn=read_mel_spectrogram)
+multi_train, multi_val, multi_test = split_dataset(multi_train_full, train_size=0.7, test_size=0.1)
+col2id = {name: i for i, name in enumerate(multi_train_full.header[1:])}
 
+
+def step_8():
+    res = {}
+
+    for col in ('valence', 'energy', 'danceability'):
+        id_ = col2id[col]
+        collate_fn = collate_fn_rnn_maker(label_ids=id_)
+        model_path = f'best-{col}-rnn.pth'
+        model = CustomLSTM(input_size=N_MEL, hidden_size=512, output_size=1,
+                        bidirectional=True, dropout=0.2).to(DEVICE)
+        losses = train_eval(model, multi_train, multi_val, collate_fn,
+                            loss_fn_str='mse', batch_size=32, epochs=2,
+                            save_path=model_path)
+        model = torch.load(model_path)
+        y_true = multi_test.dataset.labels[multi_test.indices, id_]
+        y_pred = predict(model, multi_test, collate_fn, task='regression')
+        rho = spearmanr(y_true, y_pred)
+        res['rnn', col] = (model, losses, rho)
+        
+
+    for col in ('valence', 'energy', 'danceability'):
+        id_ = col2id[col]
+        collate_fn = collate_fn_cnn_maker(max_len=MAX_LEN_RAW, label_ids=id_)
+        model_path = f'best-{col}-cnn.pth'
+        model = ConvNet(input_shape=(1, MAX_LEN_RAW, N_MEL), out_channels=2, output_size=1).to(DEVICE)
+        losses = train_eval(model, multi_train, multi_val, collate_fn,
+                            loss_fn_str='mse', batch_size=32, epochs=2,
+                            save_path=model_path)
+        model = torch.load(model_path)
+        y_true = multi_test.dataset.labels[multi_test.indices, id_]
+        y_pred = predict(model, multi_test, collate_fn, task='regression')
+        rho = spearmanr(y_true, y_pred)
+        res['cnn', col] = (model, losses, rho)
+        
+    rhos = {key: value[2][0] for key, value in res.items()}
+    print(rhos)
+    
 
 # %%
