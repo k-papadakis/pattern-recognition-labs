@@ -43,13 +43,16 @@ class_mapping = {
     'Old-Time': None
 }
 
+
 def read_fused_spectrogram(spectrogram_file):
     spectrogram = np.load(spectrogram_file)
     return spectrogram.T
 
+
 def read_mel_spectrogram(spectrogram_file):
     spectrogram = np.load(spectrogram_file)[:128]
     return spectrogram.T
+
 
 def read_chromagram(spectrogram_file):
     spectrogram = np.load(spectrogram_file)[128:]
@@ -59,6 +62,7 @@ def read_chromagram(spectrogram_file):
 # instead of preloading everything and filling precious memory.
 # Also, perform padding on batch creation and split our datasets using torch's random_split.
 
+
 class SpectrogramDataset(Dataset):
     def __init__(self, path, read_spec_fn, class_mapping, train=True):
         self.class_mapping = class_mapping
@@ -67,9 +71,11 @@ class SpectrogramDataset(Dataset):
         self.data_dir = os.path.join(path, t)
         self.labels_file = os.path.join(path, f'{t}_labels.txt')
         data_files, labels_str = self.get_file_labels()
-        self.data_files = np.array(data_files)  # Storing the filenames instead of the data
-        self.labels_str, self.labels = np.unique(labels_str, return_inverse=True)
-        
+        # Storing the filenames instead of the data
+        self.data_files = np.array(data_files)
+        self.labels_str, self.labels = np.unique(
+            labels_str, return_inverse=True)
+
     def get_file_labels(self):
         data_files = []
         labels = []
@@ -87,14 +93,16 @@ class SpectrogramDataset(Dataset):
                 data_files.append(data_file)
                 labels.append(label)
         return data_files, labels
-    
+
     def __len__(self):
         return len(self.labels)
-    
+
     def __getitem__(self, index):
-        x = self.read_spec_fn(os.path.join(self.data_dir, self.data_files[index]))
+        x = self.read_spec_fn(os.path.join(
+            self.data_dir, self.data_files[index]))
         y = self.labels[index]
         return torch.Tensor(x), torch.LongTensor([y]), torch.LongTensor([len(x)])
+
 
 def split_dataset(dataset, train_size, test_size=0., seed=RANDOM_STATE):
     if not 0 <= train_size + test_size <= 1:
@@ -106,7 +114,8 @@ def split_dataset(dataset, train_size, test_size=0., seed=RANDOM_STATE):
     generator = torch.Generator()
     if seed is not None:
         generator.manual_seed(seed)
-    dataset_train, dataset_val, dataset_test = random_split(dataset, [n_train, n_val, n_test], generator)
+    dataset_train, dataset_val, dataset_test = random_split(
+        dataset, [n_train, n_val, n_test], generator)
     return dataset_train, dataset_val, dataset_test
 
 
@@ -136,35 +145,54 @@ def plot_spectograms(spec1, spec2, title1=None, title2=None, suptitle=None, cmap
     fig.colorbar(img, ax=axs)
     fig.suptitle(suptitle)
 
+
 # %%
 # Prepare all datasets and loaders
 # raw_path = '/kaggle/input/patreco3-multitask-affective-music/data/fma_genre_spectrograms'
 raw_path = os.path.join('data', 'fma_genre_spectrograms')
-fused_raw_train_full = SpectrogramDataset(raw_path, read_spec_fn=read_fused_spectrogram, train=True, class_mapping=class_mapping)
-fused_raw_train, fused_raw_val, _ = split_dataset(fused_raw_train_full, train_size=0.8)
-fused_raw_test = SpectrogramDataset(raw_path, read_spec_fn=read_fused_spectrogram, train=False, class_mapping=class_mapping)
+fused_raw_train_full = SpectrogramDataset(
+    raw_path, read_spec_fn=read_fused_spectrogram, train=True, class_mapping=class_mapping)
+fused_raw_train, fused_raw_val, _ = split_dataset(
+    fused_raw_train_full, train_size=0.8)
+fused_raw_test = SpectrogramDataset(
+    raw_path, read_spec_fn=read_fused_spectrogram, train=False, class_mapping=class_mapping)
 
-mel_raw_train_full = SpectrogramDataset(raw_path, read_spec_fn=read_mel_spectrogram, train=True, class_mapping=class_mapping)
-mel_raw_train, mel_raw_val, _ = split_dataset(mel_raw_train_full, train_size=0.8)
-mel_raw_test = SpectrogramDataset(raw_path, read_spec_fn=read_mel_spectrogram, train=False, class_mapping=class_mapping)
+mel_raw_train_full = SpectrogramDataset(
+    raw_path, read_spec_fn=read_mel_spectrogram, train=True, class_mapping=class_mapping)
+mel_raw_train, mel_raw_val, _ = split_dataset(
+    mel_raw_train_full, train_size=0.8)
+mel_raw_test = SpectrogramDataset(
+    raw_path, read_spec_fn=read_mel_spectrogram, train=False, class_mapping=class_mapping)
 
-chroma_raw_train_full = SpectrogramDataset(raw_path, read_spec_fn=read_chromagram, train=True, class_mapping=class_mapping)
-chroma_raw_train, chroma_raw_val, _ = split_dataset(chroma_raw_train_full, train_size=0.8)
-chroma_raw_test = SpectrogramDataset(raw_path, read_spec_fn=read_chromagram, train=False, class_mapping=class_mapping)
+chroma_raw_train_full = SpectrogramDataset(
+    raw_path, read_spec_fn=read_chromagram, train=True, class_mapping=class_mapping)
+chroma_raw_train, chroma_raw_val, _ = split_dataset(
+    chroma_raw_train_full, train_size=0.8)
+chroma_raw_test = SpectrogramDataset(
+    raw_path, read_spec_fn=read_chromagram, train=False, class_mapping=class_mapping)
 
 # beat_path = '/kaggle/input/patreco3-multitask-affective-music/data/fma_genre_spectrograms_beat'
 beat_path = os.path.join('data', 'fma_genre_spectrograms_beat')
-fused_beat_train_full = SpectrogramDataset(beat_path, read_spec_fn=read_fused_spectrogram, train=True, class_mapping=class_mapping)
-fused_beat_train, fused_beat_val, _ = split_dataset(fused_beat_train_full, train_size=0.8)
-fused_beat_test = SpectrogramDataset(beat_path, read_spec_fn=read_fused_spectrogram, train=False, class_mapping=class_mapping)
+fused_beat_train_full = SpectrogramDataset(
+    beat_path, read_spec_fn=read_fused_spectrogram, train=True, class_mapping=class_mapping)
+fused_beat_train, fused_beat_val, _ = split_dataset(
+    fused_beat_train_full, train_size=0.8)
+fused_beat_test = SpectrogramDataset(
+    beat_path, read_spec_fn=read_fused_spectrogram, train=False, class_mapping=class_mapping)
 
-mel_beat_train_full = SpectrogramDataset(beat_path, read_spec_fn=read_mel_spectrogram, train=True, class_mapping=class_mapping)
-mel_beat_train, mel_beat_val, _ = split_dataset(mel_beat_train_full, train_size=0.8)
-mel_beat_test = SpectrogramDataset(beat_path, read_spec_fn=read_mel_spectrogram, train=False, class_mapping=class_mapping)
+mel_beat_train_full = SpectrogramDataset(
+    beat_path, read_spec_fn=read_mel_spectrogram, train=True, class_mapping=class_mapping)
+mel_beat_train, mel_beat_val, _ = split_dataset(
+    mel_beat_train_full, train_size=0.8)
+mel_beat_test = SpectrogramDataset(
+    beat_path, read_spec_fn=read_mel_spectrogram, train=False, class_mapping=class_mapping)
 
-chroma_beat_train_full = SpectrogramDataset(beat_path, read_spec_fn=read_chromagram, train=True, class_mapping=class_mapping)
-chroma_beat_train, chroma_beat_val, _ = split_dataset(chroma_beat_train_full, train_size=0.8)
-chroma_beat_test = SpectrogramDataset(beat_path, read_spec_fn=read_chromagram, train=False, class_mapping=class_mapping)
+chroma_beat_train_full = SpectrogramDataset(
+    beat_path, read_spec_fn=read_chromagram, train=True, class_mapping=class_mapping)
+chroma_beat_train, chroma_beat_val, _ = split_dataset(
+    chroma_beat_train_full, train_size=0.8)
+chroma_beat_test = SpectrogramDataset(
+    beat_path, read_spec_fn=read_chromagram, train=False, class_mapping=class_mapping)
 
 labels = mel_raw_train_full.labels
 labels_str = mel_raw_train_full.labels_str
@@ -180,16 +208,18 @@ def step_0_1_2_3():
     index2 = labels.tolist().index(label2)
 
     for dataset, spec_type, transform in zip(
-            (mel_raw_train_full, chroma_raw_train, mel_beat_train_full, chroma_beat_train_full),
-            ('Mel frequencies', 'Chromagrams')*2,
-            ('Raw',)*2 + ('Beat-Synced',)*2
-        ):
+        (mel_raw_train_full, chroma_raw_train,
+         mel_beat_train_full, chroma_beat_train_full),
+        ('Mel frequencies', 'Chromagrams')*2,
+        ('Raw',)*2 + ('Beat-Synced',)*2
+    ):
         spec1 = dataset[index1][0].numpy()
         spec2 = dataset[index2][0].numpy()
         print(f'{spec_type} ({transform}) shape: {spec1.shape}')
-        plot_spectograms(spec1.T, spec2.T, label1_str, label2_str, f'{spec_type} ({transform})')
-    
-    
+        plot_spectograms(spec1.T, spec2.T, label1_str,
+                         label2_str, f'{spec_type} ({transform})')
+
+
 # step_0_1_2_3()
 
 
@@ -197,25 +227,27 @@ def step_0_1_2_3():
 def step_4():
     # Create a dataset without using the class mapping, solely for computing the labels
     # Note that constructing the dataset is cheap, since our implementation is lazy.
-    ds = SpectrogramDataset(raw_path, read_spec_fn=read_mel_spectrogram, train=True, class_mapping=None)
+    ds = SpectrogramDataset(
+        raw_path, read_spec_fn=read_mel_spectrogram, train=True, class_mapping=None)
     labels_str_original = ds.labels_str
     labels_original = ds.labels
 
     fig, axs = plt.subplots(ncols=2, figsize=(12, 8))
-    sns.histplot(labels_str_original[labels_original], bins=len(labels_str_original), ax=axs[0])
+    sns.histplot(labels_str_original[labels_original], bins=len(
+        labels_str_original), ax=axs[0])
     sns.histplot(labels_str[labels], bins=len(labels_str), ax=axs[1])
     _ = plt.setp(axs[0].get_xticklabels(), rotation=45, ha='right')
     _ = plt.setp(axs[1].get_xticklabels(), rotation=45, ha='right')
     axs[0].set_title('Original Labels')
     axs[1].set_title('Transformed Labels')
 
-    
+
 # step_4()
 
 
 # %% STEPS 5, 6
 class CustomLSTM(nn.Module):
-    
+
     def __init__(self, input_size, hidden_size, output_size,
                  bidirectional=False, dropout=0.
                  ):
@@ -224,13 +256,13 @@ class CustomLSTM(nn.Module):
                             bidirectional=bidirectional, batch_first=True)
         self.linear = nn.Linear(hidden_size * (bidirectional + 1), output_size)
         self.dropout = nn.Dropout(p=dropout)
-        
+
     def forward(self, x, lengths):
-        
+
         lstm_out, *_ = self.lstm(x)
         if isinstance(lstm_out, PackedSequence):
             lstm_out, _ = pad_packed_sequence(lstm_out, batch_first=True)
-        
+
         # Get the final outputs of each direction and concatenate them
         end_indices = (lengths - 1)[..., None, None].to(DEVICE)
         end1 = torch.take_along_dim(lstm_out[..., :self.lstm.hidden_size],
@@ -243,66 +275,72 @@ class CustomLSTM(nn.Module):
                                     ).squeeze()
         # If self.lstm.bidirectional, end2 is an empty tensor
         lstm_out = torch.cat((end1, end2), dim=-1)
-    
+
         dropout_out = self.dropout(lstm_out)
         linear_out = self.linear(dropout_out)
         return linear_out
 
 
-def train_loop_rnn(dataloader, model, loss_fn, optimizer, device=DEVICE):
+def train_loop(dataloader, model, loss_fn, optimizer, device=DEVICE):
     model.train()
     train_loss = 0.
     n_batches = len(dataloader)
-    
-    for x, y, lengths in dataloader:
+
+    for x, y, *rest in dataloader:
         x, y = x.to(device), y.to(device)
-        x = pack_padded_sequence(x, lengths, enforce_sorted=False, batch_first=True)
-        
-        # Compute prediction and loss
-        pred = model(x, lengths)
+        if rest:
+            lengths = rest[0]
+            x = pack_padded_sequence(
+                x, lengths, enforce_sorted=False, batch_first=True)
+            pred = model(x, lengths)
+        else:
+            pred = model(x)
+
         loss = loss_fn(pred, y)
         train_loss += loss.item()
 
-        # Backpropagation
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        
+
+    # TODO: weighted mean losses, batch_sizes
     train_loss /= n_batches
     return train_loss
 
 
-def test_loop_rnn(dataloader, model, loss_fn, device=DEVICE):
+def test_loop(dataloader, model, loss_fn, device=DEVICE):
     model.eval()
     n_batches = len(dataloader)
     test_loss = 0
-    test_accuracy = 0
 
     with torch.inference_mode():
-        for x, y, lengths in dataloader:
+        for x, y, *rest in dataloader:
             x, y = x.to(device), y.to(device)
-            x = pack_padded_sequence(x, lengths, enforce_sorted=False, batch_first=True)
-            probs = model(x, lengths)
+            if rest:
+                lengths = rest[0]
+                x = pack_padded_sequence(
+                    x, lengths, enforce_sorted=False, batch_first=True)
+                probs = model(x, lengths)
+            else:
+                probs = model(x)
             test_loss += loss_fn(probs, y).item()
-            preds = torch.argmax(probs, 1)
-            test_accuracy += (preds == y).float().mean().item()
 
+    # TODO: weighted mean losses, batch_sizes
     test_loss /= n_batches
-    test_accuracy /= n_batches
-    return test_loss, test_accuracy
+    return test_loss
 
 
-def train_eval_rnn(model, train_dataset, val_dataset, batch_size, epochs,
-                   lr=1e-3, l2=1e-2, patience=5, tolerance=1e-3,
-                   save_path='best-model-rnn.pth', overfit_batch=False
-                   ):
-    
-    
+def train_eval(model, train_dataset, val_dataset, collate_fn, batch_size, epochs,
+               lr=1e-3, l2=1e-2, patience=5, tolerance=1e-2, loss_fn_str='crossentropy',
+               save_path='best-model.pth', overfit_batch=False
+               ):
+
     if overfit_batch:
         k = 1  # The new number of batches
         # Create a subset of the dataset of size k*batch_size and use this instead
         rng = np.random.default_rng(seed=RANDOM_STATE)
-        indices = rng.choice(np.arange(len(train_dataset)), size=k*batch_size, replace=False)
+        indices = rng.choice(np.arange(len(train_dataset)),
+                             size=k*batch_size, replace=False)
         train_dataset = Subset(train_dataset, indices)
         # Increase the number of epochs appropriately
         # total = epochs * len(dataset)
@@ -314,19 +352,24 @@ def train_eval_rnn(model, train_dataset, val_dataset, batch_size, epochs,
         epochs = min(epochs, 200)
         print(f'Overfit Batch mode. The dataset now comprises of only {k} Batches. '
               f'Epochs increased to {epochs}.')
-    
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, collate_fn=collate_fn_rnn,
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, collate_fn=collate_fn,
                               pin_memory=True, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, collate_fn=collate_fn_rnn,
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, collate_fn=collate_fn,
                             pin_memory=True)
 
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=l2)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
-    loss_fn = nn.CrossEntropyLoss()
+    if loss_fn_str == 'crossentropy':
+        loss_fn = nn.CrossEntropyLoss()
+    elif loss_fn_str == 'mse':
+        loss_fn = nn.MSELoss()
+    else:
+        raise ValueError(
+            'Invalid loss_fn_str. Value values are {"crossentropy", "mse"}')
 
     train_losses = []
     val_losses = []
-    val_accuracies = []
 
     best_val_loss = float('+infinity')
     waiting = 0
@@ -334,23 +377,22 @@ def train_eval_rnn(model, train_dataset, val_dataset, batch_size, epochs,
     for t in range(epochs):
         # Train and validate
         print(f'----EPOCH {t}----')
-        train_loss = train_loop_rnn(train_loader, model, loss_fn, optimizer)
+        train_loss = train_loop(train_loader, model, loss_fn, optimizer)
         print(f'Train Loss: {train_loss}')
-        
+
         # Validating is not usefull in overfit_batch mode.
         # We also won't use the scheduler in over_fit batch mode
         # because the epoch numbers become too large.
         if not overfit_batch:
-            val_loss, val_accuracy = test_loop_rnn(val_loader, model, loss_fn)
+            val_loss = test_loop(val_loader, model, loss_fn)
             print(f'Val Loss: {val_loss}')
-            print(f'Val Accuracy: {val_accuracy}')
-            
+
             # Save the best model
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 torch.save(model, save_path)
                 print('Saving')
-                
+
             # Early Stopping
             if val_losses and val_losses[-1] - val_loss < tolerance:
                 if waiting == patience:
@@ -360,16 +402,15 @@ def train_eval_rnn(model, train_dataset, val_dataset, batch_size, epochs,
                 print(f'waiting = {waiting}')
             else:
                 waiting = 0
-        
+
             scheduler.step()
-        
+
         train_losses.append(train_loss)
         if not overfit_batch:
             val_losses.append(val_loss)
-            val_accuracies.append(val_accuracy)
         print()
-        
-    return train_losses, val_losses, val_accuracies
+
+    return train_losses, val_losses
 
 
 # The parameters in the following were chosen so that they work well with overfit_batch=True
@@ -379,14 +420,19 @@ def train_mel_raw_rnn(overfit_batch=False):
     val_dataset = mel_raw_val
     input_dim = train_dataset[0][0].shape[1]
     output_dim = len(labels_str)
-    model = CustomLSTM(input_dim, 512, output_dim, bidirectional=True, dropout=0.2).to(DEVICE)
+    model = CustomLSTM(input_dim, 512, output_dim,
+                       bidirectional=True, dropout=0.2).to(DEVICE)
+    model_path = 'best-mel-raw-rnn.pth'
+    losses_path = 'losses-mel-raw-rnn.pkl'
 
-    losses = train_eval_rnn(model, train_dataset, val_dataset,
-                    batch_size=128, epochs=50, lr=1e-3,
-                    overfit_batch=overfit_batch, save_path='best-mel-raw.pth')
+    losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn,
+                        batch_size=128, epochs=50, lr=1e-3,
+                        overfit_batch=overfit_batch, save_path=model_path)
     if not overfit_batch:
-        with open('losses-mel-raw.pkl', 'wb') as f:
+        with open(losses_path, 'wb') as f:
             pickle.dump(losses, f)
+
+    return torch.load(model_path)
 
 
 def train_mel_beat_rnn(overfit_batch=False):
@@ -394,29 +440,37 @@ def train_mel_beat_rnn(overfit_batch=False):
     val_dataset = mel_beat_val
     input_dim = train_dataset[0][0].shape[1]
     output_dim = len(labels_str)
-    model = CustomLSTM(input_dim, 256, output_dim, bidirectional=True, dropout=0.1).to(DEVICE)
+    model = CustomLSTM(input_dim, 256, output_dim,
+                       bidirectional=True, dropout=0.1).to(DEVICE)
+    model_path = 'best-mel-beat-rnn.pth'
+    losses_path = 'losses-mel-beat-rnn.pkl'
 
-    losses = train_eval_rnn(model, train_dataset, val_dataset,
-                    batch_size=512, epochs=200, lr=1e-3,
-                    overfit_batch=overfit_batch, save_path='best-mel-beat.pth')
+    losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn,
+                        batch_size=512, epochs=200, lr=1e-3,
+                        overfit_batch=overfit_batch, save_path=model_path)
     if not overfit_batch:
-        with open('losses-mel-beat.pkl', 'wb') as f:
+        with open(losses_path, 'wb') as f:
             pickle.dump(losses, f)
-    
+
 
 def train_chroma_raw_rnn(overfit_batch=False):
     train_dataset = chroma_raw_train
     val_dataset = chroma_raw_val
     input_dim = train_dataset[0][0].shape[1]
     output_dim = len(labels_str)
-    model = CustomLSTM(input_dim, 128, output_dim, bidirectional=True, dropout=0.1).to(DEVICE)
+    model = CustomLSTM(input_dim, 128, output_dim,
+                       bidirectional=True, dropout=0.1).to(DEVICE)
+    model_path = 'best-chroma-raw-rnn.pth'
+    losses_path = 'losses-chroma-raw-rnn.pkl'
 
-    losses = train_eval_rnn(model, train_dataset, val_dataset,
-                    batch_size=256, epochs=50, lr=1e-3,
-                    overfit_batch=overfit_batch, save_path='best-chroma-raw.pth')
+    losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn,
+                        batch_size=256, epochs=50, lr=1e-3,
+                        overfit_batch=overfit_batch, save_path=model_path)
     if not overfit_batch:
-        with open('losses-chroma-raw.pkl', 'wb') as f:
+        with open(losses_path, 'wb') as f:
             pickle.dump(losses, f)
+
+    return torch.load(model_path)
 
 
 def train_fused_raw_rnn(overfit_batch=False):
@@ -424,48 +478,67 @@ def train_fused_raw_rnn(overfit_batch=False):
     val_dataset = fused_raw_val
     input_dim = train_dataset[0][0].shape[1]
     output_dim = len(labels_str)
-    model = CustomLSTM(input_dim, 512, output_dim, bidirectional=True, dropout=0.2).to(DEVICE)
+    model = CustomLSTM(input_dim, 512, output_dim,
+                       bidirectional=True, dropout=0.2).to(DEVICE)
+    model_path = 'best-fused-raw-rnn.pth'
+    losses_path = 'losses-fused-raw-rnn.pkl'
 
-    losses = train_eval_rnn(model, train_dataset, val_dataset,
-                    batch_size=128, epochs=50, lr=1e-3,
-                    overfit_batch=overfit_batch, save_path='best-fused-raw.pth')
+    losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn,
+                        batch_size=128, epochs=50, lr=1e-3,
+                        overfit_batch=overfit_batch, save_path=model_path)
     if not overfit_batch:
-        with open('losses-fused-raw.pkl', 'wb') as f:
+        with open(losses_path, 'wb') as f:
             pickle.dump(losses, f)
 
-            
+    return torch.load(model_path)
+
+
 def train_fused_beat_rnn(overfit_batch=False):
     train_dataset = fused_beat_train
     val_dataset = fused_beat_val
     input_dim = train_dataset[0][0].shape[1]
     output_dim = len(labels_str)
-    model = CustomLSTM(input_dim, 256, output_dim, bidirectional=True, dropout=0.1).to(DEVICE)
+    model = CustomLSTM(input_dim, 256, output_dim,
+                       bidirectional=True, dropout=0.1).to(DEVICE)
+    model_path = 'best-fused-beat-rnn.pth'
+    losses_path = 'losses-fused-beat-rnn.pkl'
 
-    losses = train_eval_rnn(model, train_dataset, val_dataset,
-                    batch_size=512, epochs=200, lr=1e-3,
-                    overfit_batch=overfit_batch, save_path='best-fused-beat.pth')
+    losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn,
+                        batch_size=512, epochs=200, lr=1e-3,
+                        overfit_batch=overfit_batch, save_path=model_path)
     if not overfit_batch:
-        with open('losses-fused-beat.pkl', 'wb') as f:
+        with open(losses_path, 'wb') as f:
             pickle.dump(losses, f)
 
-def predict_rnn(test_dataset, model, batch_size=128, device=DEVICE):
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=collate_fn_rnn,
+    return torch.load(model_path)
+
+
+# TODO: Chroma beat?
+
+def classify(model, test_dataset, collate_fn, batch_size=32, device=DEVICE):
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=collate_fn,
                              pin_memory=True)
     res = []
     with torch.inference_mode():
-        for x, y, lengths in test_loader:
+        for x, y, *rest in test_loader:
             x, y = x.to(device), y.to(device)
-            probs = model(x, lengths)
-            preds = torch.argmax(probs, 1)
+            if rest:
+                lengths = rest[0]
+                x = pack_padded_sequence(
+                    x, lengths, enforce_sorted=False, batch_first=True)
+                out = model(x, lengths)
+            else:
+                out = model(x)
+            preds = torch.argmax(out, 1)
             res.append(preds)
     return torch.cat(res, 0).cpu()
 
 
-def report_rnn(model, test_dataset):
+def report_clf(model, test_dataset, collate_fn):
     y_true = test_dataset.labels
-    y_pred = predict_rnn(test_dataset, model)
+    y_pred = classify(model, test_dataset, collate_fn)
     print(classification_report(y_true, y_pred, zero_division=0))
-    
+
 
 def plot_learning_curves(path):
     with open(path, 'rb') as f:
@@ -479,32 +552,27 @@ def plot_learning_curves(path):
 
 
 def step_5_6():
-    train_mel_raw_rnn(overfit_batch=False)
-    train_mel_beat_rnn(overfit_batch=False)
-    train_chroma_raw_rnn(overfit_batch=False)
-    train_fused_raw_rnn(overfit_batch=False)
-    train_fused_beat_rnn(overfit_batch=False)
-    
-    model_mel_raw = torch.load('best-mel-raw.pth')
-    model_mel_beat = torch.load('best-mel-beat.pth')
-    model_chroma_raw = torch.load('best-chroma-raw.pth')
-    model_fused_raw = torch.load('best-fused-raw.pth')
-    model_fused_beat = torch.load('best-fused-beat.pth')
-    
+
+    model_mel_raw = train_mel_raw_rnn(overfit_batch=False)
+    model_mel_beat = train_mel_beat_rnn(overfit_batch=False)
+    model_chroma_raw = train_chroma_raw_rnn(overfit_batch=False)
+    model_fused_raw = train_fused_raw_rnn(overfit_batch=False)
+    model_fused_beat = train_fused_beat_rnn(overfit_batch=False)
+
     print('Mel raw')
-    report_rnn(model_mel_raw, mel_raw_test)
+    report_clf(model_mel_raw, mel_raw_test, collate_fn_rnn)
     print('\n\n')
     print('Mel beat-sync')
-    report_rnn(model_mel_beat, mel_beat_test)
+    report_clf(model_mel_beat, mel_beat_test, collate_fn_rnn)
     print('\n\n')
     print('Chroma raw')
-    report_rnn(model_chroma_raw, chroma_raw_test)
+    report_clf(model_chroma_raw, chroma_raw_test, collate_fn_rnn)
     print('\n\n')
     print('Fused raw')
-    report_rnn(model_fused_raw, fused_raw_test)
+    report_clf(model_fused_raw, fused_raw_test, collate_fn_rnn)
     print('\n\n')
     print('Fused beat')
-    report_rnn(model_fused_beat, fused_beat_test)
+    report_clf(model_fused_beat, fused_beat_test, collate_fn_rnn)
 
 
 # step_5_6()
@@ -526,11 +594,13 @@ MAX_LEN_BEAT = 129  # max(length for _, _, length in chroma_beat_train_full)
 
 # %% STEP 7
 
+
 def new_dims(h, w, padding, dilation, kernel_size, stride):
-    
+
     if isinstance(padding, str):
-        raise TypeError("Please use a numerical values for padding instead of 'valid' or 'same'")
-    
+        raise TypeError(
+            "Please use a numerical values for padding instead of 'valid' or 'same'")
+
     if isinstance(padding, int):
         padding = (padding, padding)
     if isinstance(dilation, int):
@@ -539,32 +609,36 @@ def new_dims(h, w, padding, dilation, kernel_size, stride):
         kernel_size = (kernel_size, kernel_size)
     if isinstance(stride, int):
         stride = (stride, stride)
-        
+
     return (
-        int((h + 2*padding[0] - dilation[0]*(kernel_size[0] - 1) - 1) / stride[0] + 1),
-        int((w + 2*padding[1] - dilation[1]*(kernel_size[1] - 1) - 1) / stride[1] + 1)
+        int((h + 2*padding[0] - dilation[0] *
+            (kernel_size[0] - 1) - 1) / stride[0] + 1),
+        int((w + 2*padding[1] - dilation[1] *
+            (kernel_size[1] - 1) - 1) / stride[1] + 1)
     )
-    
-    
+
+
 class ConvNet(nn.Module):
-    
+
     def __init__(self, input_shape, out_channels, final_size,
                  kernel_size=1, stride=1, padding=0, pool_size=3, **kwargs):
         super().__init__()
-        
+
         c, h, w = input_shape
-        
+
         self.conv = nn.Conv2d(c, out_channels, kernel_size,
                               stride, padding, **kwargs)
         self.bnorm = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU()
         self.pool = nn.MaxPool2d(pool_size)
         self.flatten = nn.Flatten()
-        
-        h, w = new_dims(h, w, self.conv.padding, self.conv.dilation, self.conv.kernel_size, self.conv.stride)
-        h, w = new_dims(h, w, self.pool.padding, self.pool.dilation, self.pool.kernel_size, self.pool.stride)
+
+        h, w = new_dims(h, w, self.conv.padding, self.conv.dilation,
+                        self.conv.kernel_size, self.conv.stride)
+        h, w = new_dims(h, w, self.pool.padding, self.pool.dilation,
+                        self.pool.kernel_size, self.pool.stride)
         self.fc = nn.Linear(h * w * out_channels, final_size)
-    
+
     def forward(self, x):
         x = self.conv(x)
         x = self.bnorm(x)
@@ -575,129 +649,8 @@ class ConvNet(nn.Module):
         return x
 
 
-def train_loop_cnn(dataloader, model, loss_fn, optimizer, device=DEVICE):
-    model.train()
-    train_loss = 0.
-    n_batches = len(dataloader)
-    
-    for x, y in dataloader:
-        x, y = x.to(device), y.to(device)
-        
-        # Compute prediction and loss
-        pred = model(x)
-        loss = loss_fn(pred, y)
-        train_loss += loss.item()
-
-        # Backpropagation
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        
-    train_loss /= n_batches
-    return train_loss
-
-
-def test_loop_cnn(dataloader, model, loss_fn, device=DEVICE):
-    model.eval()
-    n_batches = len(dataloader)
-    test_loss = 0
-    test_accuracy = 0
-
-    with torch.inference_mode():
-        for x, y in dataloader:
-            x, y = x.to(device), y.to(device)
-            probs = model(x)
-            test_loss += loss_fn(probs, y).item()
-            preds = torch.argmax(probs, 1)
-            test_accuracy += (preds == y).float().mean().item()
-
-    test_loss /= n_batches
-    test_accuracy /= n_batches
-    return test_loss, test_accuracy
-
-
-def train_eval_cnn(model, train_dataset, val_dataset, max_len, batch_size, epochs,
-                   lr=1e-3, l2=1e-2, patience=5, tolerance=1e-3,
-                   save_path='best-model-cnn.pth', overfit_batch=False
-                   ):
-    
-    
-    if overfit_batch:
-        k = 1  # The new number of batches
-        # Create a subset of the dataset of size k*batch_size and use this instead
-        rng = np.random.default_rng(seed=RANDOM_STATE)
-        indices = rng.choice(np.arange(len(train_dataset)), size=k*batch_size, replace=False)
-        train_dataset = Subset(train_dataset, indices)
-        # Increase the number of epochs appropriately
-        # total = epochs * len(dataset)
-        #       = epochs * n_batches * batch_size
-        #       = epochs * n_batches * k * (batch_size/k)
-        # Thus, to keep roughly same total we do:
-        epochs *= (batch_size // k) + 1
-        # But we will use at most 200 epochs
-        epochs = min(epochs, 200)
-        print(f'Overfit Batch mode. The dataset now comprises of only {k} Batches. '
-              f'Epochs increased to {epochs}.')
-    
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, collate_fn=collate_fn_cnn_maker(max_len),
-                              pin_memory=True, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, collate_fn=collate_fn_cnn_maker(max_len),
-                            pin_memory=True)
-
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=l2)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
-    loss_fn = nn.CrossEntropyLoss()
-
-    train_losses = []
-    val_losses = []
-    val_accuracies = []
-
-    best_val_loss = float('+infinity')
-    waiting = 0
-
-    for t in range(epochs):
-        # Train and validate
-        print(f'----EPOCH {t}----')
-        train_loss = train_loop_cnn(train_loader, model, loss_fn, optimizer)
-        print(f'Train Loss: {train_loss}')
-        
-        # Validating is not usefull in overfit_batch mode.
-        # We also won't use the scheduler in over_fit batch mode
-        # because the epoch numbers become too large.
-        if not overfit_batch:
-            val_loss, val_accuracy = test_loop_cnn(val_loader, model, loss_fn)
-            print(f'Val Loss: {val_loss}')
-            print(f'Val Accuracy: {val_accuracy}')
-            
-            # Save the best model
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                torch.save(model, save_path)
-                print('Saving')
-                
-            # Early Stopping
-            if val_losses and val_losses[-1] - val_loss < tolerance:
-                if waiting == patience:
-                    print('Early Stopping')
-                    break
-                waiting += 1
-                print(f'waiting = {waiting}')
-            else:
-                waiting = 0
-        
-            scheduler.step()
-        
-        train_losses.append(train_loss)
-        if not overfit_batch:
-            val_losses.append(val_loss)
-            val_accuracies.append(val_accuracy)
-        print()
-        
-    return train_losses, val_losses, val_accuracies
-
-
 def predict_cnn(test_dataset, max_len, model, batch_size=32, device=DEVICE):
-    
+
     test_loader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=collate_fn_cnn_maker(max_len),
                              pin_memory=True)
     res = []
@@ -710,47 +663,69 @@ def predict_cnn(test_dataset, max_len, model, batch_size=32, device=DEVICE):
     return torch.cat(res, 0).cpu()
 
 
-def step_7():
-    # TODO
+# model = ConvNet(input_shape=(1, h, w), out_channels=2, final_size=len(labels_str)).to(DEVICE)
+
+# res = train_eval(model, mel_raw_train, mel_raw_test, collate_fn_cnn_maker(h), batch_size=32, epochs=30, lr=1e-4, l2=0,
+#                  save_path='best-mel-raw-cnn.pth',overfit_batch=False)
+
+
+def train_mel_raw_cnn(overfit_batch=False):
     h, w = MAX_LEN_RAW, N_MEL
-    model = ConvNet(input_shape=(1, h, w), out_channels=2, final_size=len(labels_str)).to(DEVICE)
+    train_dataset = mel_raw_train
+    val_dataset = mel_raw_val
+    model = ConvNet(input_shape=(1, h, w), out_channels=2,
+                    final_size=len(labels_str)).to(DEVICE)
+    model_path = 'best-mel-raw-cnn.pth'
+    losses_path = 'losses-mel-raw-cnn.pkl'
 
-    res = train_eval_cnn(model, train_dataset=mel_raw_train, val_dataset=mel_raw_test, max_len=h, batch_size=32, epochs=30, lr=1e-4, l2=0,
-                        overfit_batch=False)
+    losses = train_eval(model, train_dataset, val_dataset, collate_fn_cnn_maker(h),
+                        batch_size=32, epochs=50, lr=1e-4, tolerance=1e-1,
+                        overfit_batch=overfit_batch, save_path=model_path)
+    if not overfit_batch:
+        with open(losses_path, 'wb') as f:
+            pickle.dump(losses, f)
 
-    model = torch.load('best-model-cnn.pth')
-    preds = predict_cnn(mel_raw_test, h, model)
+    return torch.load(model_path)
 
-    def train_mel_raw_cnn(overfit_batch=False):
-        pass
+
+def step_7():
+    model = train_mel_raw_cnn()
+    report_clf(model, mel_raw_test, collate_fn_cnn_maker(MAX_LEN_RAW))
 
 
 # %% STEP 8
 class MultitaskDataset(Dataset):
-    
+
     def __init__(self, path, read_spec_fn, train=True):
         self.read_spec_fn = read_spec_fn
         t = 'train' if train else 'test'
         self.data_dir = os.path.join(path, t)
         self.labels_file = os.path.join(path, f'{t}_labels.txt')
-        
+
         with open(self.labels_file) as f:
-            self.header = f.readline().rstrip().split(',') 
-        self.labels = np.genfromtxt(self.labels_file, delimiter=',', skip_header=1, usecols=range(1, len(self.header)))
-        ids = np.genfromtxt(self.labels_file, delimiter=',', skip_header=1, usecols=[0], dtype=np.int32)
+            self.header = f.readline().rstrip().split(',')
+        self.labels = np.genfromtxt(
+            self.labels_file, delimiter=',', skip_header=1, usecols=range(1, len(self.header)))
+        ids = np.genfromtxt(self.labels_file, delimiter=',',
+                            skip_header=1, usecols=[0], dtype=np.int32)
         self.data_files = np.array([f'{id_}.fused.full.npy' for id_ in ids])
-        
+
     def __len__(self):
         return len(self.labels)
-    
+
     def __getitem__(self, index):
-        x = self.read_spec_fn(os.path.join(self.data_dir, self.data_files[index]))
+        x = self.read_spec_fn(os.path.join(
+            self.data_dir, self.data_files[index]))
         y = self.labels[index]
         return torch.Tensor(x), torch.Tensor(y), torch.LongTensor([len(x)])
 
+
+# multi_path = '/kaggle/input/patreco3-multitask-affective-music/data/multitask_dataset'
 multi_path = os.path.join('data', 'multitask_dataset')
-mel_multi_train_full = MultitaskDataset(multi_path, read_spec_fn=read_mel_spectrogram)
+mel_multi_train_full = MultitaskDataset(
+    multi_path, read_spec_fn=read_mel_spectrogram)
 mel_multi_train, mel_multi_val, mel_multi_test = split_dataset(mel_multi_train_full,
                                                                train_size=0.7, test_size=0.1)
 
 
+# %%
