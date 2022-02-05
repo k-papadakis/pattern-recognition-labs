@@ -96,21 +96,23 @@ class SpectrogramDataset(Dataset):
         y = self.labels[index]
         return torch.Tensor(x), torch.LongTensor([y]), torch.LongTensor([len(x)])
 
-
-def split_dataset(dataset, train_size, seed=RANDOM_STATE):
+def split_dataset(dataset, train_size, test_size=0., seed=RANDOM_STATE):
+    if not 0 <= train_size + test_size <= 1:
+        raise ValueError('Invalid train/test sizes')
     n = len(dataset)
     n_train = int(train_size * n)
-    n_val = n - n_train
+    n_test = int(test_size * n)
+    n_val = n - (n_train + n_test)
     generator = torch.Generator()
     if seed is not None:
         generator.manual_seed(seed)
-    dataset_train, dataset_val = random_split(dataset, [n_train, n_val], generator)
-    return dataset_train, dataset_val
+    dataset_train, dataset_val, dataset_test = random_split(dataset, [n_train, n_val, n_test], generator)
+    return dataset_train, dataset_val, dataset_test
 
 
 def collate_fn_rnn(batch):
     seqs, labels, lengths = map(list, zip(*batch))
-    return pad_sequence(seqs, batch_first=True), torch.LongTensor(labels), torch.LongTensor(lengths)
+    return pad_sequence(seqs, batch_first=True), torch.vstack(labels).squeeze(), torch.LongTensor(lengths)
 
 
 def collate_fn_cnn_maker(max_len):
@@ -121,7 +123,7 @@ def collate_fn_cnn_maker(max_len):
         right_pad = torch.zeros(X.shape[0], max_len - X.shape[1], X.shape[2])
         X = torch.cat([X, right_pad], 1)
         X = torch.unsqueeze(X, 1)  # Channel dimension
-        return X, torch.LongTensor(labels)
+        return X, torch.vstack(labels).squeeze()
     return collate_fn_cnn
 
 
@@ -139,29 +141,29 @@ def plot_spectograms(spec1, spec2, title1=None, title2=None, suptitle=None, cmap
 # raw_path = '/kaggle/input/patreco3-multitask-affective-music/data/fma_genre_spectrograms'
 raw_path = os.path.join('data', 'fma_genre_spectrograms')
 fused_raw_train_full = SpectrogramDataset(raw_path, read_spec_fn=read_fused_spectrogram, train=True, class_mapping=class_mapping)
-fused_raw_train, fused_raw_val = split_dataset(fused_raw_train_full, train_size=0.8)
+fused_raw_train, fused_raw_val, _ = split_dataset(fused_raw_train_full, train_size=0.8)
 fused_raw_test = SpectrogramDataset(raw_path, read_spec_fn=read_fused_spectrogram, train=False, class_mapping=class_mapping)
 
 mel_raw_train_full = SpectrogramDataset(raw_path, read_spec_fn=read_mel_spectrogram, train=True, class_mapping=class_mapping)
-mel_raw_train, mel_raw_val = split_dataset(mel_raw_train_full, train_size=0.8)
+mel_raw_train, mel_raw_val, _ = split_dataset(mel_raw_train_full, train_size=0.8)
 mel_raw_test = SpectrogramDataset(raw_path, read_spec_fn=read_mel_spectrogram, train=False, class_mapping=class_mapping)
 
 chroma_raw_train_full = SpectrogramDataset(raw_path, read_spec_fn=read_chromagram, train=True, class_mapping=class_mapping)
-chroma_raw_train, chroma_raw_val = split_dataset(chroma_raw_train_full, train_size=0.8)
+chroma_raw_train, chroma_raw_val, _ = split_dataset(chroma_raw_train_full, train_size=0.8)
 chroma_raw_test = SpectrogramDataset(raw_path, read_spec_fn=read_chromagram, train=False, class_mapping=class_mapping)
 
 # beat_path = '/kaggle/input/patreco3-multitask-affective-music/data/fma_genre_spectrograms_beat'
 beat_path = os.path.join('data', 'fma_genre_spectrograms_beat')
 fused_beat_train_full = SpectrogramDataset(beat_path, read_spec_fn=read_fused_spectrogram, train=True, class_mapping=class_mapping)
-fused_beat_train, fused_beat_val = split_dataset(fused_beat_train_full, train_size=0.8)
+fused_beat_train, fused_beat_val, _ = split_dataset(fused_beat_train_full, train_size=0.8)
 fused_beat_test = SpectrogramDataset(beat_path, read_spec_fn=read_fused_spectrogram, train=False, class_mapping=class_mapping)
 
 mel_beat_train_full = SpectrogramDataset(beat_path, read_spec_fn=read_mel_spectrogram, train=True, class_mapping=class_mapping)
-mel_beat_train, mel_beat_val = split_dataset(mel_beat_train_full, train_size=0.8)
+mel_beat_train, mel_beat_val, _ = split_dataset(mel_beat_train_full, train_size=0.8)
 mel_beat_test = SpectrogramDataset(beat_path, read_spec_fn=read_mel_spectrogram, train=False, class_mapping=class_mapping)
 
 chroma_beat_train_full = SpectrogramDataset(beat_path, read_spec_fn=read_chromagram, train=True, class_mapping=class_mapping)
-chroma_beat_train, chroma_beat_val = split_dataset(chroma_beat_train_full, train_size=0.8)
+chroma_beat_train, chroma_beat_val, _ = split_dataset(chroma_beat_train_full, train_size=0.8)
 chroma_beat_test = SpectrogramDataset(beat_path, read_spec_fn=read_chromagram, train=False, class_mapping=class_mapping)
 
 labels = mel_raw_train_full.labels
@@ -707,13 +709,48 @@ def predict_cnn(test_dataset, max_len, model, batch_size=32, device=DEVICE):
             res.append(preds)
     return torch.cat(res, 0).cpu()
 
-# %%
-h, w = MAX_LEN_RAW, N_MEL
-model = ConvNet(input_shape=(1, h, w), out_channels=2, final_size=len(labels_str)).to(DEVICE)
 
-res = train_eval_cnn(model, train_dataset=mel_raw_train, val_dataset=mel_raw_test, max_len=h, batch_size=32, epochs=30, lr=1e-4, l2=0,
-                     overfit_batch=False)
+def step_7():
+    # TODO
+    h, w = MAX_LEN_RAW, N_MEL
+    model = ConvNet(input_shape=(1, h, w), out_channels=2, final_size=len(labels_str)).to(DEVICE)
 
-model = torch.load('best-model-cnn.pth')
-preds = predict_cnn(mel_raw_test, h, model)
+    res = train_eval_cnn(model, train_dataset=mel_raw_train, val_dataset=mel_raw_test, max_len=h, batch_size=32, epochs=30, lr=1e-4, l2=0,
+                        overfit_batch=False)
+
+    model = torch.load('best-model-cnn.pth')
+    preds = predict_cnn(mel_raw_test, h, model)
+
+    def train_mel_raw_cnn(overfit_batch=False):
+        pass
+
+
+# %% STEP 8
+class MultitaskDataset(Dataset):
+    
+    def __init__(self, path, read_spec_fn, train=True):
+        self.read_spec_fn = read_spec_fn
+        t = 'train' if train else 'test'
+        self.data_dir = os.path.join(path, t)
+        self.labels_file = os.path.join(path, f'{t}_labels.txt')
+        
+        with open(self.labels_file) as f:
+            self.header = f.readline().rstrip().split(',') 
+        self.labels = np.genfromtxt(self.labels_file, delimiter=',', skip_header=1, usecols=range(1, len(self.header)))
+        ids = np.genfromtxt(self.labels_file, delimiter=',', skip_header=1, usecols=[0], dtype=np.int32)
+        self.data_files = np.array([f'{id_}.fused.full.npy' for id_ in ids])
+        
+    def __len__(self):
+        return len(self.labels)
+    
+    def __getitem__(self, index):
+        x = self.read_spec_fn(os.path.join(self.data_dir, self.data_files[index]))
+        y = self.labels[index]
+        return torch.Tensor(x), torch.Tensor(y), torch.LongTensor([len(x)])
+
+multi_path = os.path.join('data', 'multitask_dataset')
+mel_multi_train_full = MultitaskDataset(multi_path, read_spec_fn=read_mel_spectrogram)
+mel_multi_train, mel_multi_val, mel_multi_test = split_dataset(mel_multi_train_full,
+                                                               train_size=0.7, test_size=0.1)
+
 
