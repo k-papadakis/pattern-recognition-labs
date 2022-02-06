@@ -1,6 +1,8 @@
 # %%
+import imp
 import os
 import pickle
+from pprint import pprint
 
 import numpy as np
 from scipy.stats import spearmanr
@@ -315,10 +317,10 @@ def test_loop(dataloader, model, loss_fn, device=DEVICE):
                 lengths = rest[0]
                 x = pack_padded_sequence(
                     x, lengths, enforce_sorted=False, batch_first=True)
-                probs = model(x, lengths)
+                preds = model(x, lengths)
             else:
-                probs = model(x)
-            test_loss += loss_fn(probs, y).item()
+                preds = model(x)
+            test_loss += loss_fn(preds, y).item()
 
     # TODO: weighted mean losses, batch_sizes
     test_loss /= n_batches
@@ -326,8 +328,8 @@ def test_loop(dataloader, model, loss_fn, device=DEVICE):
 
 
 def train_eval(model, train_dataset, val_dataset, collate_fn, batch_size, epochs,
-               lr=1e-3, l2=1e-2, patience=5, tolerance=1e-2, loss_fn_str='crossentropy',
-               save_path='best-model.pth', overfit_batch=False
+               lr=1e-3, l2=1e-2, patience=5, tolerance=1e-2, loss_fn='crossentropy',
+               save_path='model.pth', overfit_batch=False
                ):
 
     if overfit_batch:
@@ -355,13 +357,15 @@ def train_eval(model, train_dataset, val_dataset, collate_fn, batch_size, epochs
 
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=l2)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
-    if loss_fn_str == 'crossentropy':
+    if isinstance(loss_fn, nn.Module):
+        loss_fn = loss_fn
+    elif loss_fn == 'crossentropy':
         loss_fn = nn.CrossEntropyLoss()
-    elif loss_fn_str == 'mse':
+    elif loss_fn == 'mse':
         loss_fn = nn.MSELoss()
     else:
-        raise ValueError(
-            'Invalid loss_fn_str. Valid values are "crossentropy", "mse"')
+        raise ValueError('Invalid loss_fn value. Valid values are '
+                         '"crossentropy", "mse"')
 
     train_losses = []
     val_losses = []
@@ -417,7 +421,7 @@ def train_mel_raw_rnn(overfit_batch=False):
     output_dim = len(labels_str)
     model = CustomLSTM(input_dim, 512, output_dim,
                        bidirectional=True, dropout=0.2).to(DEVICE)
-    model_path = 'best-mel-raw-rnn.pth'
+    model_path = 'mel-raw-rnn.pth'
     losses_path = 'losses-mel-raw-rnn.pkl'
 
     losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn_maker(),
@@ -437,7 +441,7 @@ def train_mel_beat_rnn(overfit_batch=False):
     output_dim = len(labels_str)
     model = CustomLSTM(input_dim, 256, output_dim,
                        bidirectional=True, dropout=0.1).to(DEVICE)
-    model_path = 'best-mel-beat-rnn.pth'
+    model_path = 'mel-beat-rnn.pth'
     losses_path = 'losses-mel-beat-rnn.pkl'
 
     losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn_maker(),
@@ -455,7 +459,7 @@ def train_chroma_raw_rnn(overfit_batch=False):
     output_dim = len(labels_str)
     model = CustomLSTM(input_dim, 128, output_dim,
                        bidirectional=True, dropout=0.1).to(DEVICE)
-    model_path = 'best-chroma-raw-rnn.pth'
+    model_path = 'chroma-raw-rnn.pth'
     losses_path = 'losses-chroma-raw-rnn.pkl'
 
     losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn_maker(),
@@ -475,7 +479,7 @@ def train_fused_raw_rnn(overfit_batch=False):
     output_dim = len(labels_str)
     model = CustomLSTM(input_dim, 512, output_dim,
                        bidirectional=True, dropout=0.2).to(DEVICE)
-    model_path = 'best-fused-raw-rnn.pth'
+    model_path = 'fused-raw-rnn.pth'
     losses_path = 'losses-fused-raw-rnn.pkl'
 
     losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn_maker(),
@@ -495,7 +499,7 @@ def train_fused_beat_rnn(overfit_batch=False):
     output_dim = len(labels_str)
     model = CustomLSTM(input_dim, 256, output_dim,
                        bidirectional=True, dropout=0.1).to(DEVICE)
-    model_path = 'best-fused-beat-rnn.pth'
+    model_path = 'fused-beat-rnn.pth'
     losses_path = 'losses-fused-beat-rnn.pkl'
 
     losses = train_eval(model, train_dataset, val_dataset, collate_fn_rnn_maker(),
@@ -673,7 +677,7 @@ def train_mel_raw_cnn(overfit_batch=False):
     val_dataset = mel_raw_val
     model = ConvNet(input_shape=(1, h, w), out_channels=2,
                     output_size=len(labels_str)).to(DEVICE)
-    model_path = 'best-mel-raw-cnn.pth'
+    model_path = 'mel-raw-cnn.pth'
     losses_path = 'losses-mel-raw-cnn.pkl'
 
     losses = train_eval(model, train_dataset, val_dataset, collate_fn_cnn_maker(h),
@@ -731,11 +735,11 @@ def step_8():
     for col in ('valence', 'energy', 'danceability'):
         id_ = col2id[col]
         collate_fn = collate_fn_rnn_maker(label_ids=id_)
-        model_path = f'best-{col}-rnn.pth'
+        model_path = f'{col}-rnn.pth'
         model = CustomLSTM(input_size=N_MEL, hidden_size=512, output_size=1,
                         bidirectional=True, dropout=0.2).to(DEVICE)
         losses = train_eval(model, multi_train, multi_val, collate_fn,
-                            loss_fn_str='mse', batch_size=32, epochs=2,
+                            loss_fn='mse', batch_size=32, epochs=2,
                             save_path=model_path)
         model = torch.load(model_path)
         y_true = multi_test.dataset.labels[multi_test.indices, id_]
@@ -747,19 +751,62 @@ def step_8():
     for col in ('valence', 'energy', 'danceability'):
         id_ = col2id[col]
         collate_fn = collate_fn_cnn_maker(max_len=MAX_LEN_RAW, label_ids=id_)
-        model_path = f'best-{col}-cnn.pth'
+        model_path = f'{col}-cnn.pth'
         model = ConvNet(input_shape=(1, MAX_LEN_RAW, N_MEL), out_channels=2, output_size=1).to(DEVICE)
         losses = train_eval(model, multi_train, multi_val, collate_fn,
-                            loss_fn_str='mse', batch_size=32, epochs=2,
+                            loss_fn='mse', batch_size=32, epochs=2,
                             save_path=model_path)
         model = torch.load(model_path)
         y_true = multi_test.dataset.labels[multi_test.indices, id_]
         y_pred = predict(model, multi_test, collate_fn, task='regression')
         rho = spearmanr(y_true, y_pred)
         res['cnn', col] = (model, losses, rho)
-        
-    rhos = {key: value[2][0] for key, value in res.items()}
-    print(rhos)
     
+    final_losses = {key: (value[1][0][-1], value[1][1][-1]) for key, value in res.items()}
+    rhos = {key: value[2][0] for key, value in res.items()}
+    print('Final losses')
+    pprint(final_losses)
+    print('Spearman Correlations')
+    pprint(rhos)
 
+
+# %% STEP 10
+class MultiMSELoss(nn.Module):
+    
+    def __init__(self, n_tasks, weights=None):
+        super().__init__()
+        if weights is None:
+            weights = torch.ones(n_tasks) / n_tasks
+        else:
+            if len(weights) != n_tasks:
+                raise ValueError('Non-matching weights and n_tasks.')
+            weights = torch.tensor(weights)
+            weights = weights / torch.sum(weights)
+        self.weights = nn.Parameter(weights, requires_grad=False)
+        
+    
+    def forward(self, input, target):
+        losses = torch.mean(torch.square(input - target), dim=0)
+        return self.weights @ losses
+        
+
+def step_10():
+    model_path = 'multi-rnn.pth'
+    n_tasks = len(multi_train_full.header) - 1
+    weights = [2, 2, 1]  # Approximately proportional to the individual losses
+    loss_fn = MultiMSELoss(n_tasks, weights=weights).to(DEVICE)
+    model = CustomLSTM(input_size=N_MEL, hidden_size=64,
+                    output_size=n_tasks, bidirectional=True, dropout=0.2
+                    ).to(DEVICE)
+    collate_fn = collate_fn_rnn_maker()
+    res = train_eval(model, multi_train, multi_val, collate_fn,
+                    loss_fn=loss_fn, batch_size=32,
+                    epochs=10, lr=1e-4, tolerance=1e-3,
+                    save_path=model_path)
+        
+    model = torch.load(model_path)
+    y_true = multi_test.dataset.labels[multi_test.indices]
+    y_pred = predict(model, multi_test, collate_fn, task='regression')
+    rhos = [spearmanr(y_true[:, i], y_pred[:, i]) for i in range(y_true.shape[1])]
+    print(rhos)
 # %%
