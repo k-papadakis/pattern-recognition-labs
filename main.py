@@ -129,7 +129,7 @@ def collate_fn_rnn_maker(label_ids=None):
         labels = torch.vstack(labels)
         if label_ids is not None:
             labels = labels[:, label_ids]
-        return X, labels.squeeze(), torch.LongTensor(lengths)
+        return X, labels.squeeze(-1), torch.LongTensor(lengths)
     return collate_fn_rnn
 
 
@@ -275,7 +275,7 @@ class CustomLSTM(nn.Module):
 
         dropout_out = self.dropout(lstm_out)
         linear_out = self.linear(dropout_out)
-        return linear_out.squeeze()
+        return linear_out.squeeze(-1)
 
 
 def train_loop(dataloader, model, loss_fn, optimizer, device=DEVICE):
@@ -538,7 +538,7 @@ def predict(model, test_dataset, collate_fn, task='classification', batch_size=3
             
             res.append(out)
             
-    return torch.cat(res, 0).squeeze().cpu()
+    return torch.cat(res, 0).cpu()
 
 
 def report_clf(model, test_dataset, collate_fn):
@@ -636,7 +636,7 @@ def collate_fn_cnn_maker(max_len, label_ids=None):
         labels = torch.vstack(labels)
         if label_ids is not None:
             labels = labels[:, label_ids]
-        return X, labels.squeeze()
+        return X, labels.squeeze(-1)
     return collate_fn_cnn
 
 
@@ -668,7 +668,7 @@ class ConvNet(nn.Module):
         x = self.pool(x)
         x = self.flatten(x)
         x = self.fc(x)
-        return x.squeeze()
+        return x.squeeze(-1)
 
 
 def train_mel_raw_cnn(overfit_batch=False):
@@ -783,6 +783,7 @@ class MultiMSELoss(nn.Module):
             weights = torch.tensor(weights)
             weights = weights / torch.sum(weights)
         self.weights = nn.Parameter(weights, requires_grad=False)
+        # TODO: Check whether self.weights doesn't change after training
         
     
     def forward(self, input, target):
@@ -809,4 +810,6 @@ def step_10():
     y_pred = predict(model, multi_test, collate_fn, task='regression')
     rhos = [spearmanr(y_true[:, i], y_pred[:, i]) for i in range(y_true.shape[1])]
     print(rhos)
+    
+    
 # %%
