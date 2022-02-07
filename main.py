@@ -251,7 +251,7 @@ class CustomLSTM(nn.Module):
         super().__init__()
         self.lstm = nn.LSTM(input_size, hidden_size,
                             bidirectional=bidirectional, batch_first=True)
-        self.linear = nn.Linear(hidden_size * (bidirectional + 1), output_size)
+        self.fc = nn.Linear(hidden_size * (bidirectional + 1), output_size)
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x, lengths):
@@ -274,8 +274,8 @@ class CustomLSTM(nn.Module):
         lstm_out = torch.cat((end1, end2), dim=-1)
 
         dropout_out = self.dropout(lstm_out)
-        linear_out = self.linear(dropout_out)
-        return linear_out.squeeze(-1)
+        fc_out = self.fc(dropout_out)
+        return fc_out.squeeze(-1)
 
 
 def train_loop(dataloader, model, loss_fn, optimizer, device=DEVICE):
@@ -605,8 +605,7 @@ MAX_LEN_BEAT = 129  # max(length for _, _, length in chroma_beat_train_full)
 def new_dims(h, w, padding, dilation, kernel_size, stride):
 
     if isinstance(padding, str):
-        raise TypeError(
-            "Please use a numerical values for padding instead of 'valid' or 'same'")
+        raise TypeError("Please use a numerical values for padding instead of 'valid' or 'same'")
 
     if isinstance(padding, int):
         padding = (padding, padding)
@@ -618,10 +617,8 @@ def new_dims(h, w, padding, dilation, kernel_size, stride):
         stride = (stride, stride)
 
     return (
-        int((h + 2*padding[0] - dilation[0] *
-            (kernel_size[0] - 1) - 1) / stride[0] + 1),
-        int((w + 2*padding[1] - dilation[1] *
-            (kernel_size[1] - 1) - 1) / stride[1] + 1)
+        int((h + 2*padding[0] - dilation[0] * (kernel_size[0] - 1) - 1) / stride[0] + 1),
+        int((w + 2*padding[1] - dilation[1] * (kernel_size[1] - 1) - 1) / stride[1] + 1)
     )
 
 
@@ -681,7 +678,7 @@ def train_mel_raw_cnn(overfit_batch=False):
     losses_path = 'losses-mel-raw-cnn.pkl'
 
     losses = train_eval(model, train_dataset, val_dataset, collate_fn_cnn_maker(h),
-                        batch_size=32, epochs=50, lr=1e-4, tolerance=1e-1,
+                        batch_size=32, epochs=100, lr=1e-4, tolerance=1e-1, l2=1e-1,
                         overfit_batch=overfit_batch, save_path=model_path)
     if not overfit_batch:
         with open(losses_path, 'wb') as f:
@@ -770,6 +767,22 @@ def step_8():
     pprint(rhos)
 
 
+# %% STEP 9
+def step_9():
+    target_col = 'danceability'
+    collate_fn = collate_fn_cnn_maker(max_len=MAX_LEN_RAW, label_ids=col2id[target_col])
+    original_model_path = 'mel-raw-cnn.pth'
+    fine_tuned_model_path = 'finetuned-cnn.pth'
+    model = torch.load(original_model_path)
+    model.fc = nn.Linear(model.fc.in_features, 1)
+    model = model.to(DEVICE)
+    losses= train_eval(model, multi_train, multi_val, collate_fn,
+                    loss_fn='mse', batch_size=32, epochs=5,
+                    lr=1e-5, patience=-1,
+                    save_path=fine_tuned_model_path)
+    model = torch.load(fine_tuned_model_path)
+
+
 # %% STEP 10
 class MultiMSELoss(nn.Module):
     
@@ -811,5 +824,3 @@ def step_10():
     rhos = [spearmanr(y_true[:, i], y_pred[:, i]) for i in range(y_true.shape[1])]
     print(rhos)
     
-    
-# %%
