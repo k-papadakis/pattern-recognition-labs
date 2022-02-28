@@ -20,9 +20,17 @@ from torch.utils.data import Dataset, Subset, DataLoader, random_split
 
 RANDOM_STATE = 42
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-
+# Data related constants
+N_MEL = 128
+N_CHROMA = 12
+MAX_LEN_RAW = 1293
+MAX_LEN_BEAT = 129
 
 # %%
+##############################################################################
+# DATASETS AND DATALOADERS
+##############################################################################
+
 class_mapping = {
     'Rock': 'Rock',
     'Psych-Rock': 'Rock',
@@ -107,6 +115,32 @@ class SpectrogramDataset(Dataset):
         return torch.Tensor(x), torch.LongTensor([y]), torch.LongTensor([len(x)])
 
 
+class MultitaskDataset(Dataset):
+
+    def __init__(self, path, read_spec_fn, train=True):
+        self.read_spec_fn = read_spec_fn
+        t = 'train' if train else 'test'
+        self.data_dir = os.path.join(path, t)
+        self.labels_file = os.path.join(path, f'{t}_labels.txt')
+
+        with open(self.labels_file) as f:
+            self.header = f.readline().rstrip().split(',')
+        self.labels = np.genfromtxt(
+            self.labels_file, delimiter=',', skip_header=1, usecols=range(1, len(self.header)))
+        ids = np.genfromtxt(self.labels_file, delimiter=',',
+                            skip_header=1, usecols=[0], dtype=np.int32)
+        self.data_files = np.array([f'{id_}.fused.full.npy' for id_ in ids])
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, index):
+        x = self.read_spec_fn(os.path.join(
+            self.data_dir, self.data_files[index]))
+        y = self.labels[index]
+        return torch.Tensor(x), torch.Tensor(y), torch.LongTensor([len(x)])
+
+
 def split_dataset(dataset, train_size, test_size=0., seed=RANDOM_STATE):
     if not 0 <= train_size + test_size <= 1:
         raise ValueError('Invalid train/test sizes')
@@ -133,116 +167,26 @@ def collate_fn_rnn_maker(label_ids=None):
     return collate_fn_rnn
 
 
-def plot_spectograms(spec1, spec2, title1=None, title2=None, suptitle=None, cmap='viridis'):
-    fig, axs = plt.subplots(2, figsize=(9, 12))
-    img = librosa.display.specshow(spec1, ax=axs[0], cmap=cmap)
-    librosa.display.specshow(spec2, ax=axs[1], cmap=cmap)
-    axs[0].set_title(title1)
-    axs[1].set_title(title2)
-    fig.colorbar(img, ax=axs)
-    fig.suptitle(suptitle)
+def collate_fn_cnn_maker(max_len, label_ids=None):
+    def collate_fn_cnn(batch):
+        seqs, labels, _ = map(list, zip(*batch))
+        seqs = [x[:max_len] for x in seqs]
+        X = pad_sequence(seqs, batch_first=True)
+        right_pad = torch.zeros(X.shape[0], max_len - X.shape[1], X.shape[2])
+        X = torch.cat([X, right_pad], 1)
+        X = torch.unsqueeze(X, 1)  # Channel dimension
+        labels = torch.vstack(labels)
+        if label_ids is not None:
+            labels = labels[:, label_ids]
+        return X, labels.squeeze(-1)
+    return collate_fn_cnn
 
 
 # %%
-# Prepare all datasets and loaders
-# raw_path = '/kaggle/input/patreco3-multitask-affective-music/data/fma_genre_spectrograms'
-raw_path = os.path.join('data', 'fma_genre_spectrograms')
-fused_raw_train_full = SpectrogramDataset(
-    raw_path, read_spec_fn=read_fused_spectrogram, train=True, class_mapping=class_mapping)
-fused_raw_train, fused_raw_val, _ = split_dataset(
-    fused_raw_train_full, train_size=0.8)
-fused_raw_test = SpectrogramDataset(
-    raw_path, read_spec_fn=read_fused_spectrogram, train=False, class_mapping=class_mapping)
+##############################################################################
+# MODELS AND LOSSES
+##############################################################################
 
-mel_raw_train_full = SpectrogramDataset(
-    raw_path, read_spec_fn=read_mel_spectrogram, train=True, class_mapping=class_mapping)
-mel_raw_train, mel_raw_val, _ = split_dataset(
-    mel_raw_train_full, train_size=0.8)
-mel_raw_test = SpectrogramDataset(
-    raw_path, read_spec_fn=read_mel_spectrogram, train=False, class_mapping=class_mapping)
-
-chroma_raw_train_full = SpectrogramDataset(
-    raw_path, read_spec_fn=read_chromagram, train=True, class_mapping=class_mapping)
-chroma_raw_train, chroma_raw_val, _ = split_dataset(
-    chroma_raw_train_full, train_size=0.8)
-chroma_raw_test = SpectrogramDataset(
-    raw_path, read_spec_fn=read_chromagram, train=False, class_mapping=class_mapping)
-
-# beat_path = '/kaggle/input/patreco3-multitask-affective-music/data/fma_genre_spectrograms_beat'
-beat_path = os.path.join('data', 'fma_genre_spectrograms_beat')
-fused_beat_train_full = SpectrogramDataset(
-    beat_path, read_spec_fn=read_fused_spectrogram, train=True, class_mapping=class_mapping)
-fused_beat_train, fused_beat_val, _ = split_dataset(
-    fused_beat_train_full, train_size=0.8)
-fused_beat_test = SpectrogramDataset(
-    beat_path, read_spec_fn=read_fused_spectrogram, train=False, class_mapping=class_mapping)
-
-mel_beat_train_full = SpectrogramDataset(
-    beat_path, read_spec_fn=read_mel_spectrogram, train=True, class_mapping=class_mapping)
-mel_beat_train, mel_beat_val, _ = split_dataset(
-    mel_beat_train_full, train_size=0.8)
-mel_beat_test = SpectrogramDataset(
-    beat_path, read_spec_fn=read_mel_spectrogram, train=False, class_mapping=class_mapping)
-
-chroma_beat_train_full = SpectrogramDataset(
-    beat_path, read_spec_fn=read_chromagram, train=True, class_mapping=class_mapping)
-chroma_beat_train, chroma_beat_val, _ = split_dataset(
-    chroma_beat_train_full, train_size=0.8)
-chroma_beat_test = SpectrogramDataset(
-    beat_path, read_spec_fn=read_chromagram, train=False, class_mapping=class_mapping)
-
-labels = mel_raw_train_full.labels
-labels_str = mel_raw_train_full.labels_str
-
-
-# %% STEPS 0, 1, 2, 3
-def step_0_1_2_3():
-    label1_str = 'Electronic'
-    label2_str = 'Classical'
-    label1 = labels_str.tolist().index(label1_str)
-    label2 = labels_str.tolist().index(label2_str)
-    index1 = labels.tolist().index(label1)
-    index2 = labels.tolist().index(label2)
-
-    for dataset, spec_type, transform in zip(
-        (mel_raw_train_full, chroma_raw_train,
-         mel_beat_train_full, chroma_beat_train_full),
-        ('Mel frequencies', 'Chromagrams')*2,
-        ('Raw',)*2 + ('Beat-Synced',)*2
-    ):
-        spec1 = dataset[index1][0].numpy()
-        spec2 = dataset[index2][0].numpy()
-        print(f'{spec_type} ({transform}) shape: {spec1.shape}')
-        plot_spectograms(spec1.T, spec2.T, label1_str,
-                         label2_str, f'{spec_type} ({transform})')
-
-
-# step_0_1_2_3()
-
-
-# %% STEP 4
-def step_4():
-    # Create a dataset without using the class mapping, solely for computing the labels
-    # Note that constructing the dataset is cheap, since our implementation is lazy.
-    ds = SpectrogramDataset(
-        raw_path, read_spec_fn=read_mel_spectrogram, train=True, class_mapping=None)
-    labels_str_original = ds.labels_str
-    labels_original = ds.labels
-
-    fig, axs = plt.subplots(ncols=2, figsize=(12, 8))
-    sns.histplot(labels_str_original[labels_original], bins=len(
-        labels_str_original), ax=axs[0])
-    sns.histplot(labels_str[labels], bins=len(labels_str), ax=axs[1])
-    _ = plt.setp(axs[0].get_xticklabels(), rotation=45, ha='right')
-    _ = plt.setp(axs[1].get_xticklabels(), rotation=45, ha='right')
-    axs[0].set_title('Original Labels')
-    axs[1].set_title('Transformed Labels')
-
-
-# step_4()
-
-
-# %% STEPS 5, 6
 class CustomLSTM(nn.Module):
 
     def __init__(self, input_size, hidden_size, output_size,
@@ -277,6 +221,84 @@ class CustomLSTM(nn.Module):
         fc_out = self.fc(dropout_out)
         return fc_out.squeeze(-1)
 
+
+def new_dims(h, w, padding, dilation, kernel_size, stride):
+
+    if isinstance(padding, str):
+        raise TypeError(
+            "Please use numerical values for padding instead of 'valid' or 'same'")
+
+    if isinstance(padding, int):
+        padding = (padding, padding)
+    if isinstance(dilation, int):
+        dilation = (dilation, dilation)
+    if isinstance(kernel_size, int):
+        kernel_size = (kernel_size, kernel_size)
+    if isinstance(stride, int):
+        stride = (stride, stride)
+
+    return (
+        int((h + 2*padding[0] - dilation[0] *
+            (kernel_size[0] - 1) - 1) / stride[0] + 1),
+        int((w + 2*padding[1] - dilation[1] *
+            (kernel_size[1] - 1) - 1) / stride[1] + 1)
+    )
+
+
+class ConvNet(nn.Module):
+
+    def __init__(self, input_shape, out_channels, output_size,
+                 kernel_size=3, stride=1, padding=0, pool_size=3, **kwargs):
+        super().__init__()
+
+        c, h, w = input_shape
+
+        self.conv = nn.Conv2d(c, out_channels, kernel_size,
+                              stride, padding, **kwargs)
+        self.bnorm = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU()
+        self.pool = nn.MaxPool2d(pool_size)
+        self.flatten = nn.Flatten()
+
+        h, w = new_dims(h, w, self.conv.padding, self.conv.dilation,
+                        self.conv.kernel_size, self.conv.stride)
+        h, w = new_dims(h, w, self.pool.padding, self.pool.dilation,
+                        self.pool.kernel_size, self.pool.stride)
+        self.fc = nn.Linear(h * w * out_channels, output_size)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bnorm(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        x = self.flatten(x)
+        x = self.fc(x)
+        return x.squeeze(-1)
+
+
+class MultiMSELoss(nn.Module):
+
+    def __init__(self, n_tasks, weights=None):
+        super().__init__()
+        if weights is None:
+            weights = torch.ones(n_tasks) / n_tasks
+        else:
+            if len(weights) != n_tasks:
+                raise ValueError('Non-matching weights and n_tasks.')
+            weights = torch.tensor(weights)
+            weights = weights / torch.sum(weights)
+        self.weights = nn.Parameter(weights, requires_grad=False)
+        # TODO: Check whether self.weights doesn't change after training
+
+    def forward(self, input, target):
+        losses = torch.mean(torch.square(input - target), dim=0)
+        return self.weights @ losses
+
+
+# %%
+##############################################################################
+# TRAINING AND TESTING ROUTINES
+##############################################################################
 
 def train_loop(dataloader, model, loss_fn, optimizer, device=DEVICE):
     model.train()
@@ -365,7 +387,7 @@ def train_eval(model, train_dataset, val_dataset, collate_fn, batch_size, epochs
         loss_fn = nn.MSELoss()
     else:
         raise ValueError('Invalid loss_fn value. Valid values are '
-                         '"crossentropy", "mse"')
+                         'torch.nn.Module objects, "crossentropy", "mse"')
 
     train_losses = []
     val_losses = []
@@ -412,6 +434,162 @@ def train_eval(model, train_dataset, val_dataset, collate_fn, batch_size, epochs
     return train_losses, val_losses
 
 
+def predict(model, test_dataset, collate_fn, task='classification', batch_size=32, device=DEVICE):
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=collate_fn,
+                             pin_memory=True)
+    res = []
+    with torch.inference_mode():
+        for x, y, *rest in test_loader:
+            x, y = x.to(device), y.to(device)
+            if rest:
+                lengths = rest[0]
+                x = pack_padded_sequence(
+                    x, lengths, enforce_sorted=False, batch_first=True)
+                out = model(x, lengths)
+            else:
+                out = model(x)
+
+            if task == 'classification':
+                out = torch.argmax(out, 1)
+            elif task == 'regression':
+                pass
+            else:
+                raise ValueError(
+                    'Invalid value for task. Valid values are "classification", "regression".')
+
+            res.append(out)
+
+    return torch.cat(res, 0).cpu()
+
+
+# %%
+##############################################################################
+# DATA LOADING
+##############################################################################
+
+# raw_path = '/kaggle/input/patreco3-multitask-affective-music/data/fma_genre_spectrograms'
+raw_path = os.path.join('data', 'fma_genre_spectrograms')
+fused_raw_train_full = SpectrogramDataset(
+    raw_path, read_spec_fn=read_fused_spectrogram, train=True, class_mapping=class_mapping)
+fused_raw_train, fused_raw_val, _ = split_dataset(
+    fused_raw_train_full, train_size=0.8)
+fused_raw_test = SpectrogramDataset(
+    raw_path, read_spec_fn=read_fused_spectrogram, train=False, class_mapping=class_mapping)
+
+mel_raw_train_full = SpectrogramDataset(
+    raw_path, read_spec_fn=read_mel_spectrogram, train=True, class_mapping=class_mapping)
+mel_raw_train, mel_raw_val, _ = split_dataset(
+    mel_raw_train_full, train_size=0.8)
+mel_raw_test = SpectrogramDataset(
+    raw_path, read_spec_fn=read_mel_spectrogram, train=False, class_mapping=class_mapping)
+
+chroma_raw_train_full = SpectrogramDataset(
+    raw_path, read_spec_fn=read_chromagram, train=True, class_mapping=class_mapping)
+chroma_raw_train, chroma_raw_val, _ = split_dataset(
+    chroma_raw_train_full, train_size=0.8)
+chroma_raw_test = SpectrogramDataset(
+    raw_path, read_spec_fn=read_chromagram, train=False, class_mapping=class_mapping)
+
+# beat_path = '/kaggle/input/patreco3-multitask-affective-music/data/fma_genre_spectrograms_beat'
+beat_path = os.path.join('data', 'fma_genre_spectrograms_beat')
+fused_beat_train_full = SpectrogramDataset(
+    beat_path, read_spec_fn=read_fused_spectrogram, train=True, class_mapping=class_mapping)
+fused_beat_train, fused_beat_val, _ = split_dataset(
+    fused_beat_train_full, train_size=0.8)
+fused_beat_test = SpectrogramDataset(
+    beat_path, read_spec_fn=read_fused_spectrogram, train=False, class_mapping=class_mapping)
+
+mel_beat_train_full = SpectrogramDataset(
+    beat_path, read_spec_fn=read_mel_spectrogram, train=True, class_mapping=class_mapping)
+mel_beat_train, mel_beat_val, _ = split_dataset(
+    mel_beat_train_full, train_size=0.8)
+mel_beat_test = SpectrogramDataset(
+    beat_path, read_spec_fn=read_mel_spectrogram, train=False, class_mapping=class_mapping)
+
+chroma_beat_train_full = SpectrogramDataset(
+    beat_path, read_spec_fn=read_chromagram, train=True, class_mapping=class_mapping)
+chroma_beat_train, chroma_beat_val, _ = split_dataset(
+    chroma_beat_train_full, train_size=0.8)
+chroma_beat_test = SpectrogramDataset(
+    beat_path, read_spec_fn=read_chromagram, train=False, class_mapping=class_mapping)
+
+# multi_path = '/kaggle/input/patreco3-multitask-affective-music/data/multitask_dataset'
+multi_path = os.path.join('data', 'multitask_dataset')
+multi_train_full = MultitaskDataset(
+    multi_path, read_spec_fn=read_mel_spectrogram)
+multi_train, multi_val, multi_test = split_dataset(
+    multi_train_full, train_size=0.7, test_size=0.1)
+
+
+labels = mel_raw_train_full.labels
+labels_str = mel_raw_train_full.labels_str
+col2id = {name: i for i, name in enumerate(multi_train_full.header[1:])}
+
+
+##############################################################################
+##############################################################################
+##############################################################################
+
+
+# %% STEPS 0, 1, 2, 3
+
+def plot_spectograms(spec1, spec2, title1=None, title2=None, suptitle=None, cmap='viridis'):
+    fig, axs = plt.subplots(2, figsize=(9, 12))
+    img = librosa.display.specshow(spec1, ax=axs[0], cmap=cmap)
+    librosa.display.specshow(spec2, ax=axs[1], cmap=cmap)
+    axs[0].set_title(title1)
+    axs[1].set_title(title2)
+    fig.colorbar(img, ax=axs)
+    fig.suptitle(suptitle)
+
+
+def step_0_1_2_3():
+    label1_str = 'Electronic'
+    label2_str = 'Classical'
+    label1 = labels_str.tolist().index(label1_str)
+    label2 = labels_str.tolist().index(label2_str)
+    index1 = labels.tolist().index(label1)
+    index2 = labels.tolist().index(label2)
+
+    for dataset, spec_type, transform in zip(
+        (mel_raw_train_full, chroma_raw_train,
+         mel_beat_train_full, chroma_beat_train_full),
+        ('Mel frequencies', 'Chromagrams')*2,
+        ('Raw',)*2 + ('Beat-Synced',)*2
+    ):
+        spec1 = dataset[index1][0].numpy()
+        spec2 = dataset[index2][0].numpy()
+        print(f'{spec_type} ({transform}) shape: {spec1.shape}')
+        plot_spectograms(spec1.T, spec2.T, label1_str,
+                         label2_str, f'{spec_type} ({transform})')
+
+
+# step_0_1_2_3()
+
+
+# %% STEP 4
+def step_4():
+    # Create a dataset without using the class mapping, solely for computing the labels
+    # Note that constructing the dataset is cheap, since our implementation is lazy.
+    ds = SpectrogramDataset(
+        raw_path, read_spec_fn=read_mel_spectrogram, train=True, class_mapping=None)
+    labels_str_original = ds.labels_str
+    labels_original = ds.labels
+
+    fig, axs = plt.subplots(ncols=2, figsize=(12, 8))
+    sns.histplot(labels_str_original[labels_original], bins=len(
+        labels_str_original), ax=axs[0])
+    sns.histplot(labels_str[labels], bins=len(labels_str), ax=axs[1])
+    _ = plt.setp(axs[0].get_xticklabels(), rotation=45, ha='right')
+    _ = plt.setp(axs[1].get_xticklabels(), rotation=45, ha='right')
+    axs[0].set_title('Original Labels')
+    axs[1].set_title('Transformed Labels')
+
+
+# step_4()
+
+
+# %% STEPS 5, 6
 # The parameters in the following were chosen so that they work well with overfit_batch=True
 
 def train_mel_raw_rnn(overfit_batch=False):
@@ -514,32 +692,6 @@ def train_fused_beat_rnn(overfit_batch=False):
 
 # TODO: Chroma beat?
 
-def predict(model, test_dataset, collate_fn, task='classification', batch_size=32, device=DEVICE):
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=collate_fn,
-                             pin_memory=True)
-    res = []
-    with torch.inference_mode():
-        for x, y, *rest in test_loader:
-            x, y = x.to(device), y.to(device)
-            if rest:
-                lengths = rest[0]
-                x = pack_padded_sequence(
-                    x, lengths, enforce_sorted=False, batch_first=True)
-                out = model(x, lengths)
-            else:
-                out = model(x)
-                
-            if task == 'classification':
-                out = torch.argmax(out, 1)
-            elif task == 'regression':
-                pass
-            else:
-                raise ValueError('Invalid value for task. Valid values are "classification", "regression".')
-            
-            res.append(out)
-            
-    return torch.cat(res, 0).cpu()
-
 
 def report_clf(model, test_dataset, collate_fn):
     y_true = test_dataset.labels
@@ -595,79 +747,6 @@ def step_5_6():
 ##############################################################################
 
 # %% STEP 7
-
-N_MEL = 128
-N_CHROMA = 12
-MAX_LEN_RAW = 1293  # max(length for _, _, length in chroma_raw_train_full)
-MAX_LEN_BEAT = 129  # max(length for _, _, length in chroma_beat_train_full)
-
-
-def new_dims(h, w, padding, dilation, kernel_size, stride):
-
-    if isinstance(padding, str):
-        raise TypeError("Please use a numerical values for padding instead of 'valid' or 'same'")
-
-    if isinstance(padding, int):
-        padding = (padding, padding)
-    if isinstance(dilation, int):
-        dilation = (dilation, dilation)
-    if isinstance(kernel_size, int):
-        kernel_size = (kernel_size, kernel_size)
-    if isinstance(stride, int):
-        stride = (stride, stride)
-
-    return (
-        int((h + 2*padding[0] - dilation[0] * (kernel_size[0] - 1) - 1) / stride[0] + 1),
-        int((w + 2*padding[1] - dilation[1] * (kernel_size[1] - 1) - 1) / stride[1] + 1)
-    )
-
-
-def collate_fn_cnn_maker(max_len, label_ids=None):
-    def collate_fn_cnn(batch):
-        seqs, labels, _ = map(list, zip(*batch))
-        seqs = [x[:max_len] for x in seqs]
-        X = pad_sequence(seqs, batch_first=True)
-        right_pad = torch.zeros(X.shape[0], max_len - X.shape[1], X.shape[2])
-        X = torch.cat([X, right_pad], 1)
-        X = torch.unsqueeze(X, 1)  # Channel dimension
-        labels = torch.vstack(labels)
-        if label_ids is not None:
-            labels = labels[:, label_ids]
-        return X, labels.squeeze(-1)
-    return collate_fn_cnn
-
-
-class ConvNet(nn.Module):
-
-    def __init__(self, input_shape, out_channels, output_size,
-                 kernel_size=3, stride=1, padding=0, pool_size=3, **kwargs):
-        super().__init__()
-
-        c, h, w = input_shape
-
-        self.conv = nn.Conv2d(c, out_channels, kernel_size,
-                              stride, padding, **kwargs)
-        self.bnorm = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU()
-        self.pool = nn.MaxPool2d(pool_size)
-        self.flatten = nn.Flatten()
-
-        h, w = new_dims(h, w, self.conv.padding, self.conv.dilation,
-                        self.conv.kernel_size, self.conv.stride)
-        h, w = new_dims(h, w, self.pool.padding, self.pool.dilation,
-                        self.pool.kernel_size, self.pool.stride)
-        self.fc = nn.Linear(h * w * out_channels, output_size)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bnorm(x)
-        x = self.relu(x)
-        x = self.pool(x)
-        x = self.flatten(x)
-        x = self.fc(x)
-        return x.squeeze(-1)
-
-
 def train_mel_raw_cnn(overfit_batch=False):
     h, w = MAX_LEN_RAW, N_MEL
     train_dataset = mel_raw_train
@@ -691,41 +770,10 @@ def step_7():
     model = train_mel_raw_cnn()
     report_clf(model, mel_raw_test, collate_fn_cnn_maker(MAX_LEN_RAW))
 
+step_7()
+
 
 # %% STEP 8
-class MultitaskDataset(Dataset):
-
-    def __init__(self, path, read_spec_fn, train=True):
-        self.read_spec_fn = read_spec_fn
-        t = 'train' if train else 'test'
-        self.data_dir = os.path.join(path, t)
-        self.labels_file = os.path.join(path, f'{t}_labels.txt')
-
-        with open(self.labels_file) as f:
-            self.header = f.readline().rstrip().split(',')
-        self.labels = np.genfromtxt(
-            self.labels_file, delimiter=',', skip_header=1, usecols=range(1, len(self.header)))
-        ids = np.genfromtxt(self.labels_file, delimiter=',',
-                            skip_header=1, usecols=[0], dtype=np.int32)
-        self.data_files = np.array([f'{id_}.fused.full.npy' for id_ in ids])
-
-    def __len__(self):
-        return len(self.labels)
-
-    def __getitem__(self, index):
-        x = self.read_spec_fn(os.path.join(
-            self.data_dir, self.data_files[index]))
-        y = self.labels[index]
-        return torch.Tensor(x), torch.Tensor(y), torch.LongTensor([len(x)])
-
-
-# multi_path = '/kaggle/input/patreco3-multitask-affective-music/data/multitask_dataset'
-multi_path = os.path.join('data', 'multitask_dataset')
-multi_train_full = MultitaskDataset(multi_path, read_spec_fn=read_mel_spectrogram)
-multi_train, multi_val, multi_test = split_dataset(multi_train_full, train_size=0.7, test_size=0.1)
-col2id = {name: i for i, name in enumerate(multi_train_full.header[1:])}
-
-
 def step_8():
     res = {}
 
@@ -734,7 +782,7 @@ def step_8():
         collate_fn = collate_fn_rnn_maker(label_ids=id_)
         model_path = f'{col}-rnn.pth'
         model = CustomLSTM(input_size=N_MEL, hidden_size=512, output_size=1,
-                        bidirectional=True, dropout=0.2).to(DEVICE)
+                           bidirectional=True, dropout=0.2).to(DEVICE)
         losses = train_eval(model, multi_train, multi_val, collate_fn,
                             loss_fn='mse', batch_size=32, epochs=2,
                             save_path=model_path)
@@ -743,13 +791,13 @@ def step_8():
         y_pred = predict(model, multi_test, collate_fn, task='regression')
         rho = spearmanr(y_true, y_pred)
         res['rnn', col] = (model, losses, rho)
-        
 
     for col in ('valence', 'energy', 'danceability'):
         id_ = col2id[col]
         collate_fn = collate_fn_cnn_maker(max_len=MAX_LEN_RAW, label_ids=id_)
         model_path = f'{col}-cnn.pth'
-        model = ConvNet(input_shape=(1, MAX_LEN_RAW, N_MEL), out_channels=2, output_size=1).to(DEVICE)
+        model = ConvNet(input_shape=(1, MAX_LEN_RAW, N_MEL),
+                        out_channels=2, output_size=1).to(DEVICE)
         losses = train_eval(model, multi_train, multi_val, collate_fn,
                             loss_fn='mse', batch_size=32, epochs=2,
                             save_path=model_path)
@@ -758,8 +806,9 @@ def step_8():
         y_pred = predict(model, multi_test, collate_fn, task='regression')
         rho = spearmanr(y_true, y_pred)
         res['cnn', col] = (model, losses, rho)
-    
-    final_losses = {key: (value[1][0][-1], value[1][1][-1]) for key, value in res.items()}
+
+    final_losses = {key: (value[1][0][-1], value[1][1][-1])
+                    for key, value in res.items()}
     rhos = {key: value[2][0] for key, value in res.items()}
     print('Final losses')
     pprint(final_losses)
@@ -770,57 +819,38 @@ def step_8():
 # %% STEP 9
 def step_9():
     target_col = 'danceability'
-    collate_fn = collate_fn_cnn_maker(max_len=MAX_LEN_RAW, label_ids=col2id[target_col])
+    collate_fn = collate_fn_cnn_maker(
+        max_len=MAX_LEN_RAW, label_ids=col2id[target_col])
     original_model_path = 'mel-raw-cnn.pth'
     fine_tuned_model_path = 'finetuned-cnn.pth'
     model = torch.load(original_model_path)
     model.fc = nn.Linear(model.fc.in_features, 1)
     model = model.to(DEVICE)
-    losses= train_eval(model, multi_train, multi_val, collate_fn,
-                    loss_fn='mse', batch_size=32, epochs=5,
-                    lr=1e-5, patience=-1,
-                    save_path=fine_tuned_model_path)
+    losses = train_eval(model, multi_train, multi_val, collate_fn,
+                        loss_fn='mse', batch_size=32, epochs=5,
+                        lr=1e-5, patience=-1,
+                        save_path=fine_tuned_model_path)
     model = torch.load(fine_tuned_model_path)
 
 
 # %% STEP 10
-class MultiMSELoss(nn.Module):
-    
-    def __init__(self, n_tasks, weights=None):
-        super().__init__()
-        if weights is None:
-            weights = torch.ones(n_tasks) / n_tasks
-        else:
-            if len(weights) != n_tasks:
-                raise ValueError('Non-matching weights and n_tasks.')
-            weights = torch.tensor(weights)
-            weights = weights / torch.sum(weights)
-        self.weights = nn.Parameter(weights, requires_grad=False)
-        # TODO: Check whether self.weights doesn't change after training
-        
-    
-    def forward(self, input, target):
-        losses = torch.mean(torch.square(input - target), dim=0)
-        return self.weights @ losses
-        
-
 def step_10():
     model_path = 'multi-rnn.pth'
     n_tasks = len(multi_train_full.header) - 1
     weights = [2, 2, 1]  # Approximately proportional to the individual losses
     loss_fn = MultiMSELoss(n_tasks, weights=weights).to(DEVICE)
     model = CustomLSTM(input_size=N_MEL, hidden_size=64,
-                    output_size=n_tasks, bidirectional=True, dropout=0.2
-                    ).to(DEVICE)
+                       output_size=n_tasks, bidirectional=True, dropout=0.2
+                       ).to(DEVICE)
     collate_fn = collate_fn_rnn_maker()
     res = train_eval(model, multi_train, multi_val, collate_fn,
-                    loss_fn=loss_fn, batch_size=32,
-                    epochs=10, lr=1e-4, tolerance=1e-3,
-                    save_path=model_path)
-        
+                     loss_fn=loss_fn, batch_size=32,
+                     epochs=10, lr=1e-4, tolerance=1e-3,
+                     save_path=model_path)
+
     model = torch.load(model_path)
     y_true = multi_test.dataset.labels[multi_test.indices]
     y_pred = predict(model, multi_test, collate_fn, task='regression')
-    rhos = [spearmanr(y_true[:, i], y_pred[:, i]) for i in range(y_true.shape[1])]
+    rhos = [spearmanr(y_true[:, i], y_pred[:, i])
+            for i in range(y_true.shape[1])]
     print(rhos)
-    
