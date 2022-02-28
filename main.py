@@ -1,5 +1,4 @@
 # %%
-import imp
 import os
 import pickle
 from pprint import pprint
@@ -247,30 +246,72 @@ def new_dims(h, w, padding, dilation, kernel_size, stride):
 
 class ConvNet(nn.Module):
 
-    def __init__(self, input_shape, out_channels, output_size,
-                 kernel_size=3, stride=1, padding=0, pool_size=3, **kwargs):
+    def __init__(self, input_shape, channels: tuple, output_size,
+                 kernel_size=3, stride=1, padding=0, pool_size=2, **kwargs):
         super().__init__()
 
+        assert len(channels) == 4
         c, h, w = input_shape
 
-        self.conv = nn.Conv2d(c, out_channels, kernel_size,
-                              stride, padding, **kwargs)
-        self.bnorm = nn.BatchNorm2d(out_channels)
+        self.conv1 = nn.Conv2d(c, channels[0], kernel_size, stride, padding, **kwargs)
+        self.bnorm1 = nn.BatchNorm2d(channels[0])
+        
+        self.conv2 = nn.Conv2d(channels[0], channels[1], kernel_size, stride, padding, **kwargs)
+        self.bnorm2 = nn.BatchNorm2d(channels[1])
+        
+        self.conv3 = nn.Conv2d(channels[1], channels[2], kernel_size, stride, padding, **kwargs)
+        self.bnorm3 = nn.BatchNorm2d(channels[2])
+        
+        self.conv4 = nn.Conv2d(channels[2], channels[3], kernel_size, stride, padding, **kwargs)
+        self.bnorm4 = nn.BatchNorm2d(channels[3])
+        
         self.relu = nn.ReLU()
         self.pool = nn.MaxPool2d(pool_size)
         self.flatten = nn.Flatten()
 
-        h, w = new_dims(h, w, self.conv.padding, self.conv.dilation,
-                        self.conv.kernel_size, self.conv.stride)
+        h, w = new_dims(h, w, self.conv1.padding, self.conv1.dilation,
+                        self.conv1.kernel_size, self.conv1.stride)
         h, w = new_dims(h, w, self.pool.padding, self.pool.dilation,
                         self.pool.kernel_size, self.pool.stride)
-        self.fc = nn.Linear(h * w * out_channels, output_size)
+        
+        h, w = new_dims(h, w, self.conv2.padding, self.conv2.dilation,
+                        self.conv2.kernel_size, self.conv2.stride)
+        h, w = new_dims(h, w, self.pool.padding, self.pool.dilation,
+                        self.pool.kernel_size, self.pool.stride)
+        
+        h, w = new_dims(h, w, self.conv3.padding, self.conv3.dilation,
+                        self.conv3.kernel_size, self.conv3.stride)
+        h, w = new_dims(h, w, self.pool.padding, self.pool.dilation,
+                        self.pool.kernel_size, self.pool.stride)
+        
+        h, w = new_dims(h, w, self.conv4.padding, self.conv4.dilation,
+                        self.conv4.kernel_size, self.conv4.stride)
+        h, w = new_dims(h, w, self.pool.padding, self.pool.dilation,
+                        self.pool.kernel_size, self.pool.stride)
+        
+        self.fc = nn.Linear(h * w * channels[-1], output_size)
 
     def forward(self, x):
-        x = self.conv(x)
-        x = self.bnorm(x)
+        x = self.conv1(x)
+        x = self.bnorm1(x)
         x = self.relu(x)
         x = self.pool(x)
+       
+        x = self.conv2(x)
+        x = self.bnorm2(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        
+        x = self.conv3(x)
+        x = self.bnorm3(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        
+        x = self.conv4(x)
+        x = self.bnorm4(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        
         x = self.flatten(x)
         x = self.fc(x)
         return x.squeeze(-1)
@@ -628,6 +669,8 @@ def train_mel_beat_rnn(overfit_batch=False):
     if not overfit_batch:
         with open(losses_path, 'wb') as f:
             pickle.dump(losses, f)
+            
+    return torch.load(model_path)
 
 
 def train_chroma_raw_rnn(overfit_batch=False):
@@ -690,9 +733,6 @@ def train_fused_beat_rnn(overfit_batch=False):
     return torch.load(model_path)
 
 
-# TODO: Chroma beat?
-
-
 def report_clf(model, test_dataset, collate_fn):
     y_true = test_dataset.labels
     y_pred = predict(model, test_dataset, collate_fn)
@@ -751,7 +791,7 @@ def train_mel_raw_cnn(overfit_batch=False):
     h, w = MAX_LEN_RAW, N_MEL
     train_dataset = mel_raw_train
     val_dataset = mel_raw_val
-    model = ConvNet(input_shape=(1, h, w), out_channels=2,
+    model = ConvNet(input_shape=(1, h, w), channels=(4, 8, 12, 16),
                     output_size=len(labels_str)).to(DEVICE)
     model_path = 'mel-raw-cnn.pth'
     losses_path = 'losses-mel-raw-cnn.pkl'
@@ -770,7 +810,6 @@ def step_7():
     model = train_mel_raw_cnn()
     report_clf(model, mel_raw_test, collate_fn_cnn_maker(MAX_LEN_RAW))
 
-step_7()
 
 
 # %% STEP 8
@@ -797,7 +836,7 @@ def step_8():
         collate_fn = collate_fn_cnn_maker(max_len=MAX_LEN_RAW, label_ids=id_)
         model_path = f'{col}-cnn.pth'
         model = ConvNet(input_shape=(1, MAX_LEN_RAW, N_MEL),
-                        out_channels=2, output_size=1).to(DEVICE)
+                        channels=(4, 8, 12, 16), output_size=1).to(DEVICE)
         losses = train_eval(model, multi_train, multi_val, collate_fn,
                             loss_fn='mse', batch_size=32, epochs=2,
                             save_path=model_path)
@@ -816,6 +855,9 @@ def step_8():
     pprint(rhos)
 
 
+# step_8()
+
+
 # %% STEP 9
 def step_9():
     target_col = 'danceability'
@@ -831,6 +873,10 @@ def step_9():
                         lr=1e-5, patience=-1,
                         save_path=fine_tuned_model_path)
     model = torch.load(fine_tuned_model_path)
+    y_true = multi_test.dataset.labels[multi_test.indices, col2id[target_col]]
+    y_pred = predict(model, multi_test, collate_fn, task='regression')
+    rho = spearmanr(y_true, y_pred)
+    print(rho)
 
 
 # %% STEP 10
