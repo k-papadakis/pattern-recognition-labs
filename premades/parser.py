@@ -1,3 +1,5 @@
+# Source: https://github.com/slp-ntua/patrec-labs/blob/main/lab2/parser.py
+
 # import os
 # from glob import glob
 from pathlib import Path
