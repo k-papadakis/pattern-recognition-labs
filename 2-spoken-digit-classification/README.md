@@ -6,9 +6,9 @@ This project is the 2nd lab of the course **Pattern Recognition**, part of the M
 
 The source code can be found in [part1.py](part1.py) and [part2.py](part2.py). [Project description/requirements in Greek](docs/PatRec2021_Lab2.pdf). [Results presentation in Greek](docs/report.pdf).
 
-## The Dataset
+## The Datasets
 
-The [dataset](data/digits/) is compose of audio files of people saying a digit from 0 to 9. Each file contains exactly one digit.
+The project uses two datasets of audio files of people uttering a digit from 0 to 9. [The first dataset](data/digits/) is used for steps 1-8, while the [second dataset](https://github.com/Jakobovski/free-spoken-digit-dataset) is used for steps 9-14.
 
 ## Project Requirements
 
