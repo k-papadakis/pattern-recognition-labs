@@ -8,11 +8,11 @@ The source code can be found in [part1.py](part1.py) and [part2.py](part2.py). [
 
 ## The Datasets
 
-The project uses two datasets of audio files of people uttering a digit from 0 to 9. [The first dataset](data/digits/) is used for steps 1-8, while the [second dataset](https://github.com/Jakobovski/free-spoken-digit-dataset) is used for steps 9-14.
+The project uses two datasets of audio files of people uttering a digit from 0 to 9. [The first dataset](data/part1/digits/) is used for steps 1-8, while the [second dataset](https://github.com/Jakobovski/free-spoken-digit-dataset) is used for steps 9-14.
 
 ## Project Requirements
 
-1. Use [Praat](https://www.fon.hum.uva.nl/praat/) to extract the average pitch of and the first 3 formants of the vowels /a/, /u/, /i/ in [onetwothree1.wav](data/onetwothree1.wav) and [onetwothree8.wav](data/onetwothree8.wav).
+1. Use [Praat](https://www.fon.hum.uva.nl/praat/) to extract the average pitch of and the first 3 formants of the vowels /a/, /u/, /i/ in [onetwothree1.wav](data/part1/onetwothree1.wav) and [onetwothree8.wav](data/part1/onetwothree8.wav).
 2. Use [premades.parser](premades/parser.py) to load the data.
 3. Extract the first 13 MFCCs, as well as the first and second order deltas, from each audio file.
 4. Plot a histogram of the first and second MFCCs for two digits, spoken by two different people. Select an utterances of these two digits from these two people and plot the MFSC correlation matrix and the MFCC correlation matrix.
